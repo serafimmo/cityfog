@@ -1,34 +1,59 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Placeholder-логотип CityFog: стилизованная карта из клеток + точка позиции. -->
-    <group
-        android:scaleX="0.85"
-        android:scaleY="0.85"
-        android:pivotX="54"
-        android:pivotY="54">
-        <!-- Фон круга -->
-        <path
-            android:fillColor="#111835"
-            android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0" />
-        <!-- Сетка клеток -->
-        <path
-            android:strokeColor="#22D3EE"
-            android:strokeWidth="1.5"
-            android:pathData="M34,34h40v40h-40z" />
-        <path
-            android:strokeColor="#22D3EE"
-            android:strokeWidth="1"
-            android:pathData="M34,47.33h40M34,60.67h40M47.33,34v40M60.67,34v40" />
-        <!-- Точка позиции / открытая клетка -->
-        <path
-            android:fillColor="#22D3EE"
-            android:pathData="M54,47.33m-6.67,0a6.67,6.67 0,1 1,13.33 0a6.67,6.67 0,1 1,-13.33 0" />
-        <path
-            android:fillColor="#0A0E27"
-            android:pathData="M54,47.33m-2.67,0a2.67,2.67 0,1 1,5.33 0a2.67,2.67 0,1 1,-5.33 0" />
-    </group>
+    <!--
+      Логотип CityFog: «туман войны по клеткам».
+      Тающая сетка неоткрытых клеток + плюс из светящихся открытых клеток,
+      в центре — яркая точка позиции с ореолом. Всё в безопасной зоне 21..87.
+    -->
+
+    <!-- Тусклая сетка неоткрытых клеток (4×4), растворяется в тумане. -->
+    <path
+        android:strokeColor="#22D3EE"
+        android:strokeWidth="0.8"
+        android:strokeAlpha="0.13"
+        android:pathData="M30,28v48 M42,28v48 M54,28v48 M66,28v48 M78,28v48
+                          M30,28h48 M30,40h48 M30,52h48 M30,64h48 M30,76h48" />
+
+    <!-- Далёкие, едва открытые клетки (хвост маршрута). -->
+    <path android:fillColor="#22D3EE" android:fillAlpha="0.20"
+        android:pathData="M30,28h12v12h-12z" />
+    <path android:fillColor="#22D3EE" android:fillAlpha="0.20"
+        android:pathData="M66,64h12v12h-12z" />
+
+    <!-- Открытые клетки вокруг позиции (плюс), мягкое свечение. -->
+    <path android:fillColor="#22D3EE" android:fillAlpha="0.55"
+        android:pathData="M48,34h12v12h-12z" />
+    <path android:fillColor="#22D3EE" android:fillAlpha="0.55"
+        android:pathData="M48,58h12v12h-12z" />
+    <path android:fillColor="#22D3EE" android:fillAlpha="0.55"
+        android:pathData="M36,46h12v12h-12z" />
+    <path android:fillColor="#22D3EE" android:fillAlpha="0.55"
+        android:pathData="M60,46h12v12h-12z" />
+
+    <!-- Центральная «горячая» клетка с градиентом cyan→teal. -->
+    <path android:pathData="M48,46h12v12h-12z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="48" android:startY="46"
+                android:endX="60" android:endY="58"
+                android:startColor="#5EEAFB"
+                android:endColor="#16C0D4" />
+        </aapt:attr>
+    </path>
+
+    <!-- Ореол точки позиции. -->
+    <path android:fillColor="#22D3EE" android:fillAlpha="0.16"
+        android:pathData="M54,52m-11,0a11,11 0,1 1,22 0a11,11 0,1 1,-22 0" />
+    <path android:fillColor="#22D3EE" android:fillAlpha="0.30"
+        android:pathData="M54,52m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0" />
+
+    <!-- Яркая точка позиции (бело-циановая). -->
+    <path android:fillColor="#ECFEFF"
+        android:pathData="M54,52m-3.8,0a3.8,3.8 0,1 1,7.6 0a3.8,3.8 0,1 1,-7.6 0" />
 </vector>
