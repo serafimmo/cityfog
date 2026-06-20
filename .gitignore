@@ -1,0 +1,29 @@
+# --- Android / Gradle ---
+.gradle/
+build/
+/app/build/
+local.properties
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# --- Python ---
+tools/.venv/
+__pycache__/
+*.py[cod]
+
+# --- Данные OSM (большие, не в репозиторий) ---
+tools/data/
+*.osm.pbf
+*.osm
+
+# --- Сборки/логи (локальные) ---
+*.apk
+*.log
+/logcat.txt
+
+# --- OS ---
+Thumbs.db
+.DS_Store

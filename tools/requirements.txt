@@ -1,0 +1,9 @@
+# OSM-препроцессинг (запускается на PC, НЕ на телефоне)
+# Если pyrosm/geopandas будут капризничать при установке на Windows —
+# напиши, перейдём на связку osmium-tool (CLI) + shapely.
+
+pyrosm>=0.6.2        # чтение .osm.pbf -> GeoDataFrame (границы, landuse, natural, ...)
+shapely>=2.0         # геометрия полигонов
+numpy>=1.24          # массив-маска
+opencv-python>=4.8   # растеризация полигонов в маску (cv2.fillPoly) — твоя стихия
+Pillow>=10.0         # сохранение индексированного PNG
