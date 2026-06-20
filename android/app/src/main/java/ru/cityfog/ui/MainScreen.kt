@@ -1,11 +1,14 @@
 package ru.cityfog.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -30,6 +33,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import ru.cityfog.ui.theme.CityFogColors
@@ -89,12 +93,22 @@ fun MainScreen(modifier: Modifier = Modifier) {
             modifier = Modifier
                 .align(androidx.compose.ui.Alignment.BottomCenter)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
-                .clip(RoundedCornerShape(24.dp)),
+                .clip(RoundedCornerShape(24.dp))
+                .border(
+                    1.dp,
+                    CityFogColors.Cyan400.copy(alpha = 0.10f),
+                    RoundedCornerShape(24.dp)
+                ),
             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
             tonalElevation = 8.dp
         ) {
             screens.forEachIndexed { index, screen ->
                 val selectedItem = selected == index
+                val iconScale by animateFloatAsState(
+                    targetValue = if (selectedItem) 1.18f else 1f,
+                    animationSpec = spring(dampingRatio = 0.45f, stiffness = 420f),
+                    label = "nav-icon-scale"
+                )
                 NavigationBarItem(
                     icon = {
                         Icon(
@@ -104,7 +118,8 @@ fun MainScreen(modifier: Modifier = Modifier) {
                                 Screen.Achievements -> Icons.Default.EmojiEvents
                                 Screen.Settings -> Icons.Default.Settings
                             },
-                            contentDescription = screen.name
+                            contentDescription = screen.name,
+                            modifier = Modifier.scale(iconScale)
                         )
                     },
                     label = {

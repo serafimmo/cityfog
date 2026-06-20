@@ -15,11 +15,15 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -194,39 +198,56 @@ fun MapScreen(modifier: Modifier = Modifier) {
     val progress by VisitRepository.progress.collectAsStateWithLifecycle()
     val isLoading = progress.totalAvailable == 0
 
+    // Оркестрованное появление панелей: как только карта загрузилась и сплэш ушёл —
+    // верхняя карточка спускается сверху, нижние панели поднимаются снизу.
+    var revealed by remember { mutableStateOf(false) }
+    LaunchedEffect(isLoading) { if (!isLoading) revealed = true }
+
     Box(modifier = modifier) {
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
 
-        GlobalProgressCard(
-            progress = progress,
-            tracking = tracking,
+        AnimatedVisibility(
+            visible = revealed,
+            enter = fadeIn(tween(450)) + slideInVertically(tween(450, easing = FastOutSlowInEasing)) { -it },
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .safeDrawingPadding()
                 .padding(top = 10.dp)
-        )
+        ) {
+            GlobalProgressCard(progress = progress, tracking = tracking)
+        }
 
-        DistrictsPanel(
-            progress = progress,
+        AnimatedVisibility(
+            visible = revealed,
+            enter = fadeIn(tween(450, delayMillis = 120)) +
+                slideInVertically(tween(450, delayMillis = 120, easing = FastOutSlowInEasing)) { it },
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .safeDrawingPadding()
                 .padding(start = 12.dp, bottom = 12.dp)
-        )
+        ) {
+            DistrictsPanel(progress = progress)
+        }
 
-        Controls(
-            tracking = tracking,
-            onToggleTracking = { tracking = it },
-            mapRef = mapRef,
-            styleRef = styleRef,
-            rendererRef = rendererRef,
-            locationOn = locationOn,
-            heatmapOn = heatmapOn,
+        AnimatedVisibility(
+            visible = revealed,
+            enter = fadeIn(tween(450, delayMillis = 220)) +
+                slideInVertically(tween(450, delayMillis = 220, easing = FastOutSlowInEasing)) { it },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .safeDrawingPadding()
                 .padding(16.dp)
-        )
+        ) {
+            Controls(
+                tracking = tracking,
+                onToggleTracking = { tracking = it },
+                mapRef = mapRef,
+                styleRef = styleRef,
+                rendererRef = rendererRef,
+                locationOn = locationOn,
+                heatmapOn = heatmapOn
+            )
+        }
 
         SnackbarHost(
             hostState = snackbarHostState,
@@ -260,8 +281,16 @@ private fun GlobalProgressCard(
     val loading = progress.totalAvailable == 0
     val visitedKm2 = progress.visited * 0.000_144
     val totalKm2 = progress.totalAvailable * 0.000_144
+    // Плавный счётчик: процент «доезжает» до значения, а не прыгает.
+    val animatedPct by animateFloatAsState(
+        targetValue = if (loading) 0f else progress.percent,
+        animationSpec = tween(1000, easing = FastOutSlowInEasing),
+        label = "global-pct"
+    )
     Card(
-        modifier = modifier,
+        modifier = modifier.border(
+            1.dp, CityFogColors.Cyan400.copy(alpha = 0.12f), RoundedCornerShape(24.dp)
+        ),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
         ),
@@ -273,9 +302,9 @@ private fun GlobalProgressCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            ProgressRing(percent = progress.percent, size = 64.dp, stroke = 6.dp) {
+            ProgressRing(percent = animatedPct, size = 64.dp, stroke = 6.dp) {
                 Text(
-                    text = if (loading) "…" else fmtPct(progress.percent),
+                    text = if (loading) "…" else fmtPct(animatedPct),
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                     color = CYAN
@@ -283,13 +312,20 @@ private fun GlobalProgressCard(
             }
             Column {
                 Text(
-                    "Казань исследована",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
+                    "КАЗАНЬ ИССЛЕДОВАНА",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Spacer(Modifier.height(2.dp))
                 Text(
                     if (loading) "загрузка карты…"
-                    else "%.2f из %.0f км²".format(visitedKm2, totalKm2),
+                    else "%.2f км²".format(visitedKm2),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    if (loading) "" else "из %.0f км²".format(totalKm2),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
