@@ -58,6 +58,7 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.location.LocationComponentActivationOptions
+import org.maplibre.android.location.LocationComponentOptions
 import org.maplibre.android.location.modes.CameraMode
 import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapLibreMap
@@ -346,8 +347,19 @@ private fun enableUserLocation(context: Context, map: MapLibreMap, style: Style,
     try {
         val lc = map.locationComponent
         if (!lc.isLocationComponentActivated) {
+            // Пульсирующая точка в бирюзовом тоне — в цвет свечения исследованной зоны.
+            val opts = LocationComponentOptions.builder(context)
+                .pulseEnabled(true)
+                .pulseColor(android.graphics.Color.parseColor("#22D3EE"))
+                .pulseAlpha(0.5f)
+                .foregroundTintColor(android.graphics.Color.parseColor("#06B6D4"))
+                .bearingTintColor(android.graphics.Color.parseColor("#06B6D4"))
+                .accuracyColor(android.graphics.Color.parseColor("#22D3EE"))
+                .accuracyAlpha(0.15f)
+                .build()
             lc.activateLocationComponent(
                 LocationComponentActivationOptions.builder(context, style)
+                    .locationComponentOptions(opts)
                     .useDefaultLocationEngine(true)
                     .build()
             )
