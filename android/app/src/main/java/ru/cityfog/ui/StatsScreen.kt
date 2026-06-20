@@ -42,6 +42,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -50,6 +51,7 @@ import kotlinx.coroutines.withContext
 import ru.cityfog.data.TrackRepository
 import ru.cityfog.data.VisitRepository
 import ru.cityfog.ui.theme.CityFogColors
+import ru.cityfog.ui.theme.CityFogTheme
 import java.util.concurrent.TimeUnit
 
 @Composable
@@ -387,6 +389,24 @@ private fun AnimatedStatNumber(
         fontWeight = fontWeight,
         color = color
     )
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0A0E27, widthDp = 380)
+@Composable
+private fun StatsCardsPreview() {
+    CityFogTheme {
+        Column(Modifier.background(CityFogColors.Navy900).padding(16.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                QuickStatCard(Icons.Default.Today, "Сегодня", "42", "клеток", Modifier.weight(1f))
+                QuickStatCard(
+                    Icons.Default.LocalFireDepartment, "Стрик", "4", "дня подряд",
+                    Modifier.weight(1f)
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+            DistrictBar(VisitRepository.DistrictProgress(5, "Ново-Савиновский", 2600, 5000))
+        }
+    }
 }
 
 private fun formatDistance(meters: Double): String = when {

@@ -35,10 +35,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.cityfog.data.VisitRepository
 import ru.cityfog.ui.theme.CityFogColors
+import ru.cityfog.ui.theme.CityFogTheme
 
 @Composable
 fun AchievementsScreen(modifier: Modifier = Modifier) {
@@ -205,6 +207,29 @@ private fun AchievementCard(a: Achievement) {
                     modifier = Modifier.size(16.dp)
                 )
             }
+        }
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0A0E27, widthDp = 380, heightDp = 740)
+@Composable
+private fun AchievementsPreview() {
+    val sample = buildAchievements(
+        VisitRepository.Progress(
+            visited = 1240,
+            totalAvailable = 3_600_000,
+            districts = listOf(
+                VisitRepository.DistrictProgress(5, "Ново-Савиновский", 2600, 5000),
+                VisitRepository.DistrictProgress(3, "Кировский", 90, 200)
+            )
+        ),
+        VisitRepository.Stats(1240, 18, 60, 120, 4, 95, 5, "Ново-Савиновский", 52f)
+    )
+    CityFogTheme {
+        Column(Modifier.background(CityFogColors.Navy900).padding(16.dp)) {
+            SummaryCard(unlocked = sample.count { it.unlocked }, total = sample.size)
+            Spacer(Modifier.height(16.dp))
+            sample.take(4).forEach { AchievementCard(it); Spacer(Modifier.height(12.dp)) }
         }
     }
 }
