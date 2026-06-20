@@ -5,6 +5,8 @@
   "mPerDegLon": 62587.190022210765,
   "latOrigin": 55.58,
   "lonOrigin": 48.78,
+  "latMax": 55.96,
+  "lonMax": 49.40,
   "width": 3233,
   "height": 3525
 }

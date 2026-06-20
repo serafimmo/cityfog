@@ -8,15 +8,17 @@ import ru.cityfog.grid.GridMapper
 import ru.cityfog.mask.AvailabilityMask
 import java.io.File
 import java.util.Arrays
+import java.util.Calendar
+import java.util.TimeZone
+import java.util.concurrent.TimeUnit
 
 /**
  * Единый источник правды по открытым клеткам в рантайме.
  *
- * - in-memory HashSet<Long> для O(1) проверки "была ли" и быстрой выборки в bbox;
+ * - in-memory HashMap<Long, Long> (cellId -> firstVisitTs) для O(1) проверки и статистики;
  * - персист через [VisitStore] (visited.bin);
- * - фильтрация по [AvailabilityMask]: фиксы вне города / в воде / на заводах НЕ считаются,
- *   поэтому все записанные клетки доступны → % = visited / totalAvailable честный;
- * - прогресс (общий и по районам) отдаётся в UI через StateFlow.
+ * - фильтрация по [AvailabilityMask];
+ * - прогресс и статистика отдаются в UI через StateFlow.
  */
 object VisitRepository {
 
@@ -32,8 +34,20 @@ object VisitRepository {
         val percent: Float get() = if (totalAvailable > 0) visited * 100f / totalAvailable else 0f
     }
 
+    data class Stats(
+        val totalCells: Int,
+        val todayCells: Int,
+        val weekCells: Int,
+        val monthCells: Int,
+        val streakDays: Int,
+        val bestDayCells: Int,
+        val topDistrictId: Int,
+        val topDistrictName: String,
+        val topDistrictPercent: Float
+    )
+
     private lateinit var store: VisitStore
-    private val visited = HashSet<Long>()
+    private val visited = HashMap<Long, Long>()
     private val perDistrictVisited = IntArray(9) // индексы 1..8
     private val lock = Any()
 
@@ -42,50 +56,56 @@ object VisitRepository {
     private val _progress = MutableStateFlow(Progress(0, 0, emptyList()))
     val progress: StateFlow<Progress> = _progress.asStateFlow()
 
+    private val _stats = MutableStateFlow(emptyStats())
+    val stats: StateFlow<Stats> = _stats.asStateFlow()
+
     private val _revision = MutableStateFlow(0L)
     /** Бамп при каждой новой клетке — сигнал для перерисовки тумана. */
     val revision: StateFlow<Long> = _revision.asStateFlow()
 
-    /** Идемпотентно: грузит маску и visited.bin, считает прогресс. Звать с фонового потока. */
+    /** Идемпотентно: грузит маску и visited.bin, считает прогресс и статистику. */
     fun init(context: Context) {
         if (initialized) return
         synchronized(lock) {
             if (initialized) return
             AvailabilityMask.ensureLoaded(context)
             store = VisitStore(File(context.applicationContext.filesDir, "visited.bin"))
-            for (id in store.loadAll()) visited.add(id)
+            for ((id, ts) in store.loadAll()) visited[id] = ts
             recomputeDistricts()
             initialized = true
         }
         emitProgress()
+        emitStats()
     }
 
     private fun recomputeDistricts() {
         Arrays.fill(perDistrictVisited, 0)
-        for (id in visited) {
+        for (id in visited.keys) {
             val d = AvailabilityMask.districtOf(GridMapper.unpackX(id), GridMapper.unpackY(id))
             if (d in 1..8) perDistrictVisited[d]++
         }
     }
 
     /** Записать GPS-фикс. Возвращает true, если открылась НОВАЯ доступная клетка. */
-    fun recordFix(lat: Double, lon: Double): Boolean {
+    fun recordFix(lat: Double, lon: Double, ts: Long = System.currentTimeMillis()): Boolean {
         val cx = GridMapper.cellX(lon)
         val cy = GridMapper.cellY(lat)
         if (!GridMapper.inBounds(cx, cy)) return false
-        if (!AvailabilityMask.isAvailable(cx, cy)) return false // вода/завод/вне города — мимо
+        if (!AvailabilityMask.isAvailable(cx, cy)) return false
         val id = GridMapper.packId(cx, cy)
         val isNew: Boolean
         synchronized(lock) {
-            isNew = visited.add(id)
+            isNew = !visited.containsKey(id)
             if (isNew) {
-                store.appendOne(id)
+                visited[id] = ts
+                store.appendOne(id, ts)
                 val d = AvailabilityMask.districtOf(cx, cy)
                 if (d in 1..8) perDistrictVisited[d]++
             }
         }
         if (isNew) {
             emitProgress()
+            emitStats()
             _revision.value = _revision.value + 1
         }
         return isNew
@@ -104,6 +124,81 @@ object VisitRepository {
         _progress.value = Progress(visitedCount, AvailabilityMask.totalAvailable, districts)
     }
 
+    private fun emitStats() {
+        val entries: List<Pair<Long, Long>>
+        synchronized(lock) { entries = visited.toList() }
+        _stats.value = computeStats(entries)
+    }
+
+    private fun computeStats(entries: List<Pair<Long, Long>>): Stats {
+        if (entries.isEmpty()) return emptyStats()
+
+        val now = System.currentTimeMillis()
+        val todayStart = startOfDay(now)
+        val weekStart = todayStart - TimeUnit.DAYS.toMillis(6)
+        val monthStart = todayStart - TimeUnit.DAYS.toMillis(29)
+
+        var today = 0
+        var week = 0
+        var month = 0
+        val perDay = HashMap<Long, Int>()
+        val perDistrict = IntArray(9)
+
+        for ((id, ts) in entries) {
+            if (ts >= todayStart) today++
+            if (ts >= weekStart) week++
+            if (ts >= monthStart) month++
+            perDay[startOfDay(ts)] = perDay.getOrDefault(startOfDay(ts), 0) + 1
+            val d = AvailabilityMask.districtOf(GridMapper.unpackX(id), GridMapper.unpackY(id))
+            if (d in 1..8) perDistrict[d]++
+        }
+
+        val bestDay = perDay.values.maxOrNull() ?: 0
+        val streak = computeStreak(perDay.keys.sorted())
+
+        val topId = (1..8).maxByOrNull { perDistrict[it] } ?: 0
+        val topName = if (topId in 1..8) AvailabilityMask.districtName(topId) else ""
+        val topTotal = if (topId in 1..8) AvailabilityMask.districtTotal(topId) else 0
+        val topPercent = if (topTotal > 0) perDistrict[topId] * 100f / topTotal else 0f
+
+        return Stats(
+            totalCells = entries.size,
+            todayCells = today,
+            weekCells = week,
+            monthCells = month,
+            streakDays = streak,
+            bestDayCells = bestDay,
+            topDistrictId = topId,
+            topDistrictName = topName,
+            topDistrictPercent = topPercent
+        )
+    }
+
+    private fun startOfDay(ts: Long): Long {
+        val cal = Calendar.getInstance(TimeZone.getDefault())
+        cal.timeInMillis = ts
+        cal.set(Calendar.HOUR_OF_DAY, 0)
+        cal.set(Calendar.MINUTE, 0)
+        cal.set(Calendar.SECOND, 0)
+        cal.set(Calendar.MILLISECOND, 0)
+        return cal.timeInMillis
+    }
+
+    private fun computeStreak(sortedDays: List<Long>): Int {
+        if (sortedDays.isEmpty()) return 0
+        val today = startOfDay(System.currentTimeMillis())
+        if (sortedDays.last() < today - TimeUnit.DAYS.toMillis(1)) return 0
+        var streak = 1
+        for (i in sortedDays.size - 1 downTo 1) {
+            if (sortedDays[i] - sortedDays[i - 1] == TimeUnit.DAYS.toMillis(1)) {
+                streak++
+            } else {
+                break
+            }
+        }
+        return streak
+    }
+
     /** cellId открытых клеток внутри прямоугольника координат (для отрисовки видимой области). */
     fun cellsInBounds(west: Double, south: Double, east: Double, north: Double): List<Long> {
         val minX = GridMapper.cellX(west)
@@ -112,12 +207,31 @@ object VisitRepository {
         val maxY = GridMapper.cellY(north)
         val out = ArrayList<Long>()
         synchronized(lock) {
-            for (id in visited) {
+            for (id in visited.keys) {
                 val x = GridMapper.unpackX(id)
                 val y = GridMapper.unpackY(id)
                 if (x in minX..maxX && y in minY..maxY) out.add(id)
             }
         }
         return out
+    }
+
+    /** Снимок id всех открытых клеток (для тепловой карты). */
+    fun allCells(): LongArray {
+        synchronized(lock) { return visited.keys.toLongArray() }
+    }
+
+    fun emptyStats() = Stats(0, 0, 0, 0, 0, 0, 0, "", 0f)
+
+    /** Очистить все посещённые клетки. */
+    fun clearAll(context: Context) {
+        synchronized(lock) {
+            visited.clear()
+            Arrays.fill(perDistrictVisited, 0)
+            store.clear()
+        }
+        emitProgress()
+        emitStats()
+        _revision.value = _revision.value + 1
     }
 }

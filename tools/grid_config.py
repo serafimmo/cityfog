@@ -26,9 +26,10 @@ LON_ORIGIN = 48.78          # запад (город от 48.821)
 LAT_MAX = 55.96             # север (город до 55.938 — Авиастроительный)
 LON_MAX = 49.40             # восток (город до 49.381 — Советский)
 
-# Размер растровой маски в клетках (пикселях)
-WIDTH = floor((LON_MAX - LON_ORIGIN) * M_PER_DEG_LON / CELL_SIZE_M)   # ~2700
-HEIGHT = floor((LAT_MAX - LAT_ORIGIN) * M_PER_DEG_LAT / CELL_SIZE_M)  # ~2780
+# Размер растровой маски в клетках (пикселях).
+# Финальные значения должны совпадать с GridMapper.kt и уже сгенерированной маской.
+WIDTH = floor((LON_MAX - LON_ORIGIN) * M_PER_DEG_LON / CELL_SIZE_M)   # 3233
+HEIGHT = floor((LAT_MAX - LAT_ORIGIN) * M_PER_DEG_LAT / CELL_SIZE_M)  # 3525
 
 
 # --- Преобразования ----------------------------------------------------------
@@ -63,6 +64,8 @@ def manifest() -> dict:
         "mPerDegLon": M_PER_DEG_LON,
         "latOrigin": LAT_ORIGIN,
         "lonOrigin": LON_ORIGIN,
+        "latMax": LAT_MAX,
+        "lonMax": LON_MAX,
         "width": WIDTH,
         "height": HEIGHT,
     }

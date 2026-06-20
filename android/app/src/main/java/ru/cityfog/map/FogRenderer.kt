@@ -4,6 +4,7 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.FillLayer
+import org.maplibre.android.style.layers.HeatmapLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
@@ -33,10 +34,14 @@ class FogRenderer(style: Style) {
 
     private val fogSource = GeoJsonSource(FOG_SRC)
     private val edgeSource = GeoJsonSource(EDGE_SRC)
+    private val heatSource = GeoJsonSource(HEAT_SRC)
+    private val heatLayer = HeatmapLayer(HEAT_LAYER, HEAT_SRC)
+    private var heatOn = false
 
     init {
         style.addSource(fogSource)
         style.addSource(edgeSource)
+        style.addSource(heatSource)
 
         style.addLayer(
             FillLayer(FOG_FILL, FOG_SRC).withProperties(
@@ -72,6 +77,63 @@ class FogRenderer(style: Style) {
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
             )
         )
+
+        // Тепловая карта (по умолчанию выключена): «где я бывал чаще/плотнее всего».
+        // Плотность открытых клеток превращается в свечение от синего к бело-горячему.
+        heatLayer.setProperties(
+            PropertyFactory.heatmapColor(
+                Expression.interpolate(
+                    Expression.linear(), Expression.heatmapDensity(),
+                    Expression.stop(0.0, Expression.rgba(10, 14, 39, 0.0)),
+                    Expression.stop(0.15, Expression.rgba(13, 71, 161, 0.55)),
+                    Expression.stop(0.4, Expression.rgba(34, 211, 238, 0.78)),
+                    Expression.stop(0.65, Expression.rgba(45, 212, 191, 0.85)),
+                    Expression.stop(0.85, Expression.rgba(250, 204, 21, 0.9)),
+                    Expression.stop(1.0, Expression.rgba(248, 250, 252, 1.0))
+                )
+            ),
+            PropertyFactory.heatmapRadius(
+                Expression.interpolate(
+                    Expression.linear(), Expression.zoom(),
+                    Expression.stop(10f, 6f),
+                    Expression.stop(13f, 14f),
+                    Expression.stop(16f, 30f)
+                )
+            ),
+            PropertyFactory.heatmapIntensity(
+                Expression.interpolate(
+                    Expression.linear(), Expression.zoom(),
+                    Expression.stop(10f, 0.5f),
+                    Expression.stop(16f, 1.3f)
+                )
+            ),
+            PropertyFactory.heatmapWeight(0.7f),
+            PropertyFactory.heatmapOpacity(0.85f),
+            PropertyFactory.visibility(Property.NONE)
+        )
+        style.addLayer(heatLayer)
+    }
+
+    /** Включить/выключить тепловую карту. При включении заполняет источник центрами клеток. */
+    fun setHeatmap(on: Boolean) {
+        heatOn = on
+        heatLayer.setProperties(
+            PropertyFactory.visibility(if (on) Property.VISIBLE else Property.NONE)
+        )
+        if (on) refreshHeat()
+    }
+
+    private fun refreshHeat() {
+        val ids = VisitRepository.allCells()
+        val feats = ArrayList<Feature>(ids.size)
+        for (id in ids) {
+            val x = GridMapper.unpackX(id)
+            val y = GridMapper.unpackY(id)
+            val lon = (GridMapper.westLon(x) + GridMapper.eastLon(x)) / 2.0
+            val lat = (GridMapper.southLat(y) + GridMapper.northLat(y)) / 2.0
+            feats.add(Feature.fromGeometry(Point.fromLngLat(lon, lat)))
+        }
+        heatSource.setGeoJson(FeatureCollection.fromFeatures(feats))
     }
 
     fun refresh(map: MapLibreMap) {
@@ -118,6 +180,8 @@ class FogRenderer(style: Style) {
         }
 
         fogSource.setGeoJson(Feature.fromGeometry(Polygon.fromLngLats(rings)))
+
+        if (heatOn) refreshHeat()
     }
 
     /** Внешние рёбра области (ребро между открытой и закрытой клеткой) как отрезки. */
@@ -187,6 +251,8 @@ class FogRenderer(style: Style) {
         private const val FOG_FILL = "fog-fill"
         private const val EDGE_GLOW = "fog-edge-glow"
         private const val EDGE_CORE = "fog-edge-core"
+        private const val HEAT_SRC = "heat-src"
+        private const val HEAT_LAYER = "heat-layer"
         private const val MIN_ZOOM = 13.5
         private const val FOG_COLOR = "#0A0E27"  // глубокая полночная синь
         private const val GLOW_COLOR = "#22D3EE" // cyan-400 — свечение кромки

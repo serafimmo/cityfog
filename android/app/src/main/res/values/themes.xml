@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Splash-стартовая тема (Android 12+ и compat). -->
+    <style name="Theme.CityFog.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/navy_900</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash</item>
+        <item name="windowSplashScreenAnimationDuration">1000</item>
+        <item name="postSplashScreenTheme">@style/Theme.CityFog</item>
+    </style>
 
-    <style name="Theme.CityFog" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Основная тёмная тема, до того как Compose поднимется. -->
+    <style name="Theme.CityFog" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/navy_900</item>
+        <item name="android:statusBarColor">@color/navy_900</item>
+        <item name="android:navigationBarColor">@color/navy_900</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
 </resources>

@@ -23,8 +23,10 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import ru.cityfog.MainActivity
 import ru.cityfog.R
+import ru.cityfog.data.TrackStore
 import ru.cityfog.data.VisitRepository
 import ru.cityfog.grid.GridMapper
+import java.io.File
 
 /**
  * Foreground Service трекинга. Главная техническая сложность проекта — Android 12+
@@ -38,10 +40,12 @@ import ru.cityfog.grid.GridMapper
 class LocationService : Service() {
 
     private lateinit var client: FusedLocationProviderClient
+    private lateinit var trackStore: TrackStore
     private var handlerThread: HandlerThread? = null
 
     // Быстрый фильтр "стоим на месте": не дёргаем репозиторий, пока клетка та же.
     @Volatile private var lastCellId: Long = Long.MIN_VALUE
+    @Volatile private var lastTrackTs: Long = 0L
 
     private val callback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
@@ -52,6 +56,7 @@ class LocationService : Service() {
     override fun onCreate() {
         super.onCreate()
         client = LocationServices.getFusedLocationProviderClient(this)
+        trackStore = TrackStore(File(applicationContext.filesDir, dailyTrackFile()))
         createChannel()
     }
 
@@ -68,10 +73,18 @@ class LocationService : Service() {
     private fun handleLocation(loc: Location) {
         // Фильтр точности: в городе GPS прыгает; мусорные фиксы дают "рандомные" клетки.
         if (loc.hasAccuracy() && loc.accuracy > MAX_ACCURACY_M) return
+        val ts = System.currentTimeMillis()
+
+        // Пишем трек: не чаще раза в 2 секунды, чтобы не раздувать файл.
+        if (ts - lastTrackTs >= 2000L) {
+            trackStore.append(loc.latitude, loc.longitude, ts)
+            lastTrackTs = ts
+        }
+
         val id = GridMapper.cellIdOrNull(loc.latitude, loc.longitude) ?: return
         if (id == lastCellId) return
         lastCellId = id
-        VisitRepository.recordFix(loc.latitude, loc.longitude)
+        VisitRepository.recordFix(loc.latitude, loc.longitude, ts)
     }
 
     @SuppressLint("MissingPermission") // разрешение гарантирует UI до старта сервиса
@@ -150,6 +163,11 @@ class LocationService : Service() {
 
         fun stop(context: Context) {
             context.stopService(Intent(context, LocationService::class.java))
+        }
+
+        private fun dailyTrackFile(): String {
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            return "track_${sdf.format(java.util.Date())}.bin"
         }
     }
 }

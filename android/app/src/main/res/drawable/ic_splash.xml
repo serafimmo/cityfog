@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="288dp"
+    android:height="288dp"
+    android:viewportWidth="288"
+    android:viewportHeight="288">
+    <!-- Splash-логотип CityFog: крупная версия иконки для SplashScreen API. -->
+    <group
+        android:scaleX="2.4"
+        android:scaleY="2.4"
+        android:pivotX="144"
+        android:pivotY="144"
+        android:translateX="-37"
+        android:translateY="-37">
+        <!-- Фон круга -->
+        <path
+            android:fillColor="#111835"
+            android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0" />
+        <!-- Сетка клеток -->
+        <path
+            android:strokeColor="#22D3EE"
+            android:strokeWidth="1.5"
+            android:pathData="M34,34h40v40h-40z" />
+        <path
+            android:strokeColor="#22D3EE"
+            android:strokeWidth="1"
+            android:pathData="M34,47.33h40M34,60.67h40M47.33,34v40M60.67,34v40" />
+        <!-- Точка позиции / открытая клетка -->
+        <path
+            android:fillColor="#22D3EE"
+            android:pathData="M54,47.33m-6.67,0a6.67,6.67 0,1 1,13.33 0a6.67,6.67 0,1 1,-13.33 0" />
+        <path
+            android:fillColor="#0A0E27"
+            android:pathData="M54,47.33m-2.67,0a2.67,2.67 0,1 1,5.33 0a2.67,2.67 0,1 1,-5.33 0" />
+    </group>
+</vector>

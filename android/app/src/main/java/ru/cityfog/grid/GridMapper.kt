@@ -22,8 +22,12 @@ object GridMapper {
 
     const val LAT_ORIGIN = 55.58
     const val LON_ORIGIN = 48.78
-    const val WIDTH = 3233   // клеток по долготе (см. grid_config.py)
-    const val HEIGHT = 3525  // клеток по широте
+    const val LAT_MAX = 55.96
+    const val LON_MAX = 49.40
+
+    // Размеры выведены из охватывающего прямоугольника — должны совпадать с grid_config.py.
+    val WIDTH = floor((LON_MAX - LON_ORIGIN) * M_PER_DEG_LON / CELL_SIZE_M).toInt()   // 3233
+    val HEIGHT = floor((LAT_MAX - LAT_ORIGIN) * M_PER_DEG_LAT / CELL_SIZE_M).toInt()  // 3525
 
     fun cellX(lon: Double): Int = floor((lon - LON_ORIGIN) * M_PER_DEG_LON / CELL_SIZE_M).toInt()
     fun cellY(lat: Double): Int = floor((lat - LAT_ORIGIN) * M_PER_DEG_LAT / CELL_SIZE_M).toInt()

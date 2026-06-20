@@ -12,6 +12,12 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -30,13 +36,23 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -44,6 +60,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -51,10 +68,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -80,17 +100,18 @@ import org.maplibre.android.maps.Style
 import ru.cityfog.data.VisitRepository
 import ru.cityfog.map.FogRenderer
 import ru.cityfog.tracking.LocationService
+import ru.cityfog.ui.theme.CityFogColors
 
 private val KAZAN = LatLng(55.7963, 49.1088)
 private const val START_ZOOM = 12.0
 private const val FOLLOW_ZOOM = 16.5
-private const val STYLE_URL = "https://tiles.openfreemap.org/styles/positron"
+private const val STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
 
-private val TEAL = Color(0xFF0F766E)
-private val TEAL_BRIGHT = Color(0xFF14B8A6)
-private val CYAN = Color(0xFF22D3EE)
-private val REC_RED = Color(0xFFEF4444)
-private val TRACK = Color(0x22000000)
+private val TEAL = CityFogColors.Teal500
+private val TEAL_BRIGHT = CityFogColors.Teal400
+private val CYAN = CityFogColors.Cyan400
+private val REC_RED = CityFogColors.Recording
+private val TRACK = CityFogColors.Navy600.copy(alpha = 0.35f)
 
 @Composable
 fun MapScreen(modifier: Modifier = Modifier) {
@@ -107,6 +128,7 @@ fun MapScreen(modifier: Modifier = Modifier) {
     val rendererRef = remember { mutableStateOf<FogRenderer?>(null) }
     val locationOn = remember { mutableStateOf(false) }
     var tracking by rememberSaveable { mutableStateOf(false) }
+    val heatmapOn = rememberSaveable { mutableStateOf(false) }
 
     val mapView = remember {
         MapLibre.getInstance(context)
@@ -148,14 +170,27 @@ fun MapScreen(modifier: Modifier = Modifier) {
         }
     }
 
+    val haptic = LocalHapticFeedback.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    var previousRevision by remember { mutableLongStateOf(0L) }
     val revision by VisitRepository.revision.collectAsStateWithLifecycle()
     LaunchedEffect(revision) {
         val m = mapRef.value
         val r = rendererRef.value
         if (m != null && r != null) r.refresh(m)
+        if (revision > 0) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+        if (revision > previousRevision && previousRevision > 0) {
+            val newCells = (revision - previousRevision).toInt()
+            val message = if (newCells == 1) "Открыта 1 клетка" else "Открыто $newCells клетки"
+            snackbarHostState.showSnackbar(message)
+        }
+        previousRevision = revision
     }
 
     val progress by VisitRepository.progress.collectAsStateWithLifecycle()
+    val isLoading = progress.totalAvailable == 0
 
     Box(modifier = modifier) {
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
@@ -182,12 +217,33 @@ fun MapScreen(modifier: Modifier = Modifier) {
             onToggleTracking = { tracking = it },
             mapRef = mapRef,
             styleRef = styleRef,
+            rendererRef = rendererRef,
             locationOn = locationOn,
+            heatmapOn = heatmapOn,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .safeDrawingPadding()
                 .padding(16.dp)
         )
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 88.dp),
+            snackbar = { data ->
+                androidx.compose.material3.Snackbar(
+                    snackbarData = data,
+                    containerColor = CityFogColors.Navy800,
+                    contentColor = CityFogColors.TextPrimary,
+                    shape = RoundedCornerShape(16.dp)
+                )
+            }
+        )
+
+        AnimatedVisibility(visible = isLoading) {
+            SplashOverlay()
+        }
     }
 }
 
@@ -205,22 +261,22 @@ private fun GlobalProgressCard(
     Card(
         modifier = modifier,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-        shape = RoundedCornerShape(20.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
+        shape = RoundedCornerShape(24.dp)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            ProgressRing(percent = progress.percent, size = 58.dp, stroke = 6.dp) {
+            ProgressRing(percent = progress.percent, size = 64.dp, stroke = 6.dp) {
                 Text(
                     text = if (loading) "…" else fmtPct(progress.percent),
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
-                    color = TEAL
+                    color = CYAN
                 )
             }
             Column {
@@ -237,11 +293,11 @@ private fun GlobalProgressCard(
                 )
                 AnimatedVisibility(visible = tracking) {
                     Row(
-                        modifier = Modifier.padding(top = 4.dp),
+                        modifier = Modifier.padding(top = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Box(Modifier.size(8.dp).clip(CircleShape).background(REC_RED))
+                        RecordingPulse()
                         Text(
                             "идёт запись",
                             style = MaterialTheme.typography.labelSmall,
@@ -252,6 +308,47 @@ private fun GlobalProgressCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RecordingPulse() {
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 0.6f,
+        targetValue = 1.8f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "scale"
+    )
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.8f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "alpha"
+    )
+    Box(
+        modifier = Modifier.size(10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .clip(CircleShape)
+                .background(REC_RED.copy(alpha = alpha))
+                .scale(scale)
+        )
+        Box(
+            Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(REC_RED)
+        )
     }
 }
 
@@ -289,14 +386,14 @@ private fun DistrictsPanel(
     val districts = progress.districts.sortedByDescending { it.percent }
 
     Card(
-        modifier = modifier.widthIn(max = 260.dp),
+        modifier = modifier.widthIn(max = 280.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-        shape = RoundedCornerShape(18.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
+        shape = RoundedCornerShape(22.dp)
     ) {
-        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -316,10 +413,10 @@ private fun DistrictsPanel(
                 )
             }
             AnimatedVisibility(visible = expanded) {
-                Column(modifier = Modifier.padding(top = 6.dp)) {
+                Column(modifier = Modifier.padding(top = 8.dp)) {
                     districts.forEach { d ->
                         DistrictRow(d)
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(10.dp))
                     }
                 }
             }
@@ -329,42 +426,127 @@ private fun DistrictsPanel(
 
 @Composable
 private fun DistrictRow(d: VisitRepository.DistrictProgress) {
+    val color = districtColor(d.id)
     Column {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                d.name,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(color)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    d.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1
+                )
+            }
             Text(
                 fmtPct(d.percent),
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = TEAL
+                color = color
             )
         }
-        Spacer(Modifier.height(3.dp))
+        Spacer(Modifier.height(4.dp))
         LinearProgressIndicator(
             progress = { (d.percent / 100f).coerceIn(0f, 1f) },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(5.dp)
                 .clip(CircleShape),
-            color = TEAL_BRIGHT,
+            color = color,
             trackColor = TRACK
         )
     }
 }
+
+internal fun districtColor(id: Int): Color =
+    CityFogColors.DistrictColors.getOrElse(id - 1) { CityFogColors.Cyan400 }
 
 private fun fmtPct(p: Float): String = when {
     p <= 0f -> "0%"
     p < 1f -> "%.2f%%".format(p)
     p < 10f -> "%.1f%%".format(p)
     else -> "%.0f%%".format(p)
+}
+
+// ----------------------------------------------------------------------------- Splash
+
+@Composable
+private fun SplashOverlay() {
+    val infiniteTransition = rememberInfiniteTransition(label = "splash")
+    val pulse by infiniteTransition.animateFloat(
+        initialValue = 0.7f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "splash-pulse"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(CityFogColors.Navy900),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                modifier = Modifier
+                    .size(120.dp)
+                    .scale(pulse),
+                contentAlignment = Alignment.Center
+            ) {
+                // Символичная «карта» из клеток: 5×5 сетка с мерцающими точками.
+                val cellSize = 14.dp
+                val gap = 4.dp
+                val grid = 5
+                Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+                    repeat(grid) { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                            repeat(grid) { col ->
+                                val active = (row + col) % 3 == 0
+                                val alpha = if (active) 1f else 0.25f
+                                Box(
+                                    Modifier
+                                        .size(cellSize)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(CYAN.copy(alpha = alpha))
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(28.dp))
+            Text(
+                "CityFog",
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold,
+                color = CityFogColors.TextPrimary
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Загружаю карту Казани…",
+                style = MaterialTheme.typography.bodyMedium,
+                color = CityFogColors.TextSecondary
+            )
+            Spacer(Modifier.height(32.dp))
+            CircularProgressIndicator(
+                modifier = Modifier.size(28.dp),
+                color = CYAN,
+                trackColor = CityFogColors.Navy700
+            )
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------- Управление
@@ -375,7 +557,9 @@ private fun Controls(
     onToggleTracking: (Boolean) -> Unit,
     mapRef: MutableState<MapLibreMap?>,
     styleRef: MutableState<Style?>,
+    rendererRef: MutableState<FogRenderer?>,
     locationOn: MutableState<Boolean>,
+    heatmapOn: MutableState<Boolean>,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -408,11 +592,33 @@ private fun Controls(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         SmallFloatingActionButton(
-            onClick = { startFollowing(context, mapRef.value, styleRef.value, locationOn) },
-            containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = TEAL
+            onClick = {
+                val on = !heatmapOn.value
+                heatmapOn.value = on
+                rendererRef.value?.setHeatmap(on)
+            },
+            containerColor = if (heatmapOn.value) CYAN
+            else MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+            contentColor = if (heatmapOn.value) CityFogColors.Navy900 else CYAN,
+            shape = CircleShape
         ) {
-            Text("◎", fontSize = 22.sp)
+            Icon(
+                imageVector = Icons.Default.Whatshot,
+                contentDescription = "Тепловая карта",
+                modifier = Modifier.size(22.dp)
+            )
+        }
+        SmallFloatingActionButton(
+            onClick = { startFollowing(context, mapRef.value, styleRef.value, locationOn) },
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+            contentColor = CYAN,
+            shape = CircleShape
+        ) {
+            Icon(
+                imageVector = Icons.Default.MyLocation,
+                contentDescription = "Моё местоположение",
+                modifier = Modifier.size(22.dp)
+            )
         }
         ExtendedFloatingActionButton(
             onClick = {
@@ -443,10 +649,21 @@ private fun Controls(
                 }
             },
             containerColor = if (tracking) REC_RED else TEAL_BRIGHT,
-            contentColor = Color.White
-        ) {
-            Text(if (tracking) "■  Стоп" else "▶  Старт", fontWeight = FontWeight.SemiBold)
-        }
+            contentColor = Color.White,
+            shape = CircleShape,
+            icon = {
+                Icon(
+                    imageVector = if (tracking) Icons.Default.Stop else Icons.Default.PlayArrow,
+                    contentDescription = if (tracking) "Стоп" else "Старт"
+                )
+            },
+            text = {
+                Text(
+                    if (tracking) "Стоп" else "Старт",
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        )
     }
 
     if (showBgDialog) {
@@ -485,11 +702,16 @@ private fun enableUserLocation(context: Context, map: MapLibreMap, style: Style,
             val opts = LocationComponentOptions.builder(context)
                 .pulseEnabled(true)
                 .pulseColor(android.graphics.Color.parseColor("#22D3EE"))
-                .pulseAlpha(0.5f)
-                .foregroundTintColor(android.graphics.Color.parseColor("#06B6D4"))
-                .bearingTintColor(android.graphics.Color.parseColor("#06B6D4"))
+                .pulseAlpha(0.45f)
+                .pulseSingleDuration(1200f)
+                .pulseMaxRadius(40f)
+                .pulseInterpolator(android.view.animation.DecelerateInterpolator())
+                .foregroundTintColor(android.graphics.Color.parseColor("#22D3EE"))
+                .foregroundStaleTintColor(android.graphics.Color.parseColor("#22D3EE"))
+                .bearingTintColor(android.graphics.Color.parseColor("#22D3EE"))
                 .accuracyColor(android.graphics.Color.parseColor("#22D3EE"))
-                .accuracyAlpha(0.15f)
+                .accuracyAlpha(0.12f)
+                .elevation(8f)
                 .build()
             lc.activateLocationComponent(
                 LocationComponentActivationOptions.builder(context, style)
