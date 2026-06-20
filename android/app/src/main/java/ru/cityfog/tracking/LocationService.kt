@@ -51,7 +51,6 @@ class LocationService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        VisitRepository.init(applicationContext)
         client = LocationServices.getFusedLocationProviderClient(this)
         createChannel()
     }
@@ -83,6 +82,8 @@ class LocationService : Service() {
             .build()
         val ht = HandlerThread("cityfog-loc").also { it.start() }
         handlerThread = ht
+        // Грузим маску/репозиторий на ЭТОМ же Looper'е до первого фикса (FIFO гарантирует порядок).
+        android.os.Handler(ht.looper).post { VisitRepository.init(applicationContext) }
         client.requestLocationUpdates(req, callback, ht.looper)
     }
 

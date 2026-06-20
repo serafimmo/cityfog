@@ -12,21 +12,29 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
@@ -44,8 +52,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -54,6 +65,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -71,24 +84,23 @@ import ru.cityfog.tracking.LocationService
 private val KAZAN = LatLng(55.7963, 49.1088)
 private const val START_ZOOM = 12.0
 private const val FOLLOW_ZOOM = 16.5
-
-// Positron — приглушённый светло-серый стиль; под тёмным туманом он смотрится как ночная карта.
 private const val STYLE_URL = "https://tiles.openfreemap.org/styles/positron"
 
 private val TEAL = Color(0xFF0F766E)
 private val TEAL_BRIGHT = Color(0xFF14B8A6)
+private val CYAN = Color(0xFF22D3EE)
 private val REC_RED = Color(0xFFEF4444)
+private val TRACK = Color(0x22000000)
 
-/**
- * Экран карты с туманом войны. MapLibre — обычная Android View (MapView); встраиваем её в
- * Compose через AndroidView и вручную пробрасываем lifecycle. Поверх — статистика и кнопки.
- */
 @Composable
 fun MapScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    LaunchedEffect(Unit) { VisitRepository.init(context.applicationContext) }
+    // Грузим маску доступности + visited.bin на фоне (тяжёлая операция).
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) { VisitRepository.init(context.applicationContext) }
+    }
 
     val mapRef = remember { mutableStateOf<MapLibreMap?>(null) }
     val styleRef = remember { mutableStateOf<Style?>(null) }
@@ -109,7 +121,6 @@ fun MapScreen(modifier: Modifier = Modifier) {
                     rendererRef.value = renderer
                     renderer.refresh(map)
                     map.addOnCameraIdleListener { renderer.refresh(map) }
-                    // Если разрешение уже есть — сразу показать синюю точку (без слежения).
                     if (hasFineLocation(context)) {
                         enableUserLocation(context, map, style, follow = false)
                         locationOn.value = true
@@ -137,7 +148,6 @@ fun MapScreen(modifier: Modifier = Modifier) {
         }
     }
 
-    // Клетки открываются и при неподвижной камере → перерисовываем туман по revision.
     val revision by VisitRepository.revision.collectAsStateWithLifecycle()
     LaunchedEffect(revision) {
         val m = mapRef.value
@@ -145,18 +155,26 @@ fun MapScreen(modifier: Modifier = Modifier) {
         if (m != null && r != null) r.refresh(m)
     }
 
-    val count by VisitRepository.count.collectAsStateWithLifecycle()
+    val progress by VisitRepository.progress.collectAsStateWithLifecycle()
 
     Box(modifier = modifier) {
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
 
-        StatsCard(
-            count = count,
+        GlobalProgressCard(
+            progress = progress,
             tracking = tracking,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .safeDrawingPadding()
-                .padding(top = 12.dp)
+                .padding(top = 10.dp)
+        )
+
+        DistrictsPanel(
+            progress = progress,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .safeDrawingPadding()
+                .padding(start = 12.dp, bottom = 12.dp)
         )
 
         Controls(
@@ -173,63 +191,183 @@ fun MapScreen(modifier: Modifier = Modifier) {
     }
 }
 
+// ----------------------------------------------------------------------------- Статистика
+
 @Composable
-private fun StatsCard(count: Int, tracking: Boolean, modifier: Modifier = Modifier) {
-    val areaKm2 = count * (GRID_CELL_AREA_M2 / 1_000_000.0)
+private fun GlobalProgressCard(
+    progress: VisitRepository.Progress,
+    tracking: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val loading = progress.totalAvailable == 0
+    val visitedKm2 = progress.visited * 0.000_144
+    val totalKm2 = progress.totalAvailable * 0.000_144
     Card(
         modifier = modifier,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-        shape = RoundedCornerShape(18.dp)
+        shape = RoundedCornerShape(20.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text(
-                text = "%,d".format(count),
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = TEAL
-            )
-            Text(
-                text = if (count == 0) "клеток открыто" else "клеток · %.2f км²".format(areaKm2),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            AnimatedVisibility(visible = tracking) {
-                Row(
-                    modifier = Modifier.padding(top = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Box(
-                        Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(REC_RED)
-                    )
-                    Text(
-                        "идёт запись",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = REC_RED,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-            if (count == 0 && !tracking) {
+            ProgressRing(percent = progress.percent, size = 58.dp, stroke = 6.dp) {
                 Text(
-                    "Нажми «Старт» и иди",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp)
+                    text = if (loading) "…" else fmtPct(progress.percent),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = TEAL
                 )
+            }
+            Column {
+                Text(
+                    "Казань исследована",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    if (loading) "загрузка карты…"
+                    else "%.2f из %.0f км²".format(visitedKm2, totalKm2),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                AnimatedVisibility(visible = tracking) {
+                    Row(
+                        modifier = Modifier.padding(top = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(Modifier.size(8.dp).clip(CircleShape).background(REC_RED))
+                        Text(
+                            "идёт запись",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = REC_RED,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
             }
         }
     }
 }
+
+@Composable
+private fun ProgressRing(
+    percent: Float,
+    size: Dp,
+    stroke: Dp,
+    content: @Composable () -> Unit
+) {
+    Box(modifier = Modifier.size(size), contentAlignment = Alignment.Center) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val sw = stroke.toPx()
+            drawArc(
+                color = TRACK, startAngle = -90f, sweepAngle = 360f, useCenter = false,
+                style = Stroke(width = sw, cap = StrokeCap.Round)
+            )
+            val frac = (percent / 100f).coerceIn(0f, 1f)
+            drawArc(
+                color = TEAL_BRIGHT, startAngle = -90f, sweepAngle = 360f * frac, useCenter = false,
+                style = Stroke(width = sw, cap = StrokeCap.Round)
+            )
+        }
+        content()
+    }
+}
+
+@Composable
+private fun DistrictsPanel(
+    progress: VisitRepository.Progress,
+    modifier: Modifier = Modifier
+) {
+    if (progress.districts.isEmpty()) return
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val districts = progress.districts.sortedByDescending { it.percent }
+
+    Card(
+        modifier = modifier.widthIn(max = 260.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "Районы",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    if (expanded) "⌄" else "⌃",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            AnimatedVisibility(visible = expanded) {
+                Column(modifier = Modifier.padding(top = 6.dp)) {
+                    districts.forEach { d ->
+                        DistrictRow(d)
+                        Spacer(Modifier.height(8.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DistrictRow(d: VisitRepository.DistrictProgress) {
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                d.name,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1
+            )
+            Text(
+                fmtPct(d.percent),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = TEAL
+            )
+        }
+        Spacer(Modifier.height(3.dp))
+        LinearProgressIndicator(
+            progress = { (d.percent / 100f).coerceIn(0f, 1f) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(5.dp)
+                .clip(CircleShape),
+            color = TEAL_BRIGHT,
+            trackColor = TRACK
+        )
+    }
+}
+
+private fun fmtPct(p: Float): String = when {
+    p <= 0f -> "0%"
+    p < 1f -> "%.2f%%".format(p)
+    p < 10f -> "%.1f%%".format(p)
+    else -> "%.0f%%".format(p)
+}
+
+// ----------------------------------------------------------------------------- Управление
 
 @Composable
 private fun Controls(
@@ -339,15 +477,11 @@ private fun Controls(
     }
 }
 
-private const val GRID_CELL_AREA_M2 = 12.0 * 12.0
-
-/** Включить синюю точку позиции и (опц.) слежение камеры. Безопасно к повторным вызовам. */
 @SuppressLint("MissingPermission")
 private fun enableUserLocation(context: Context, map: MapLibreMap, style: Style, follow: Boolean) {
     try {
         val lc = map.locationComponent
         if (!lc.isLocationComponentActivated) {
-            // Пульсирующая точка в бирюзовом тоне — в цвет свечения исследованной зоны.
             val opts = LocationComponentOptions.builder(context)
                 .pulseEnabled(true)
                 .pulseColor(android.graphics.Color.parseColor("#22D3EE"))
@@ -371,11 +505,9 @@ private fun enableUserLocation(context: Context, map: MapLibreMap, style: Style,
             lc.zoomWhileTracking(FOLLOW_ZOOM)
         }
     } catch (_: Exception) {
-        // Если движок локации недоступен — просто не показываем точку, без краша.
     }
 }
 
-/** Центрировать карту на себе и включить слежение. */
 private fun startFollowing(
     context: Context,
     map: MapLibreMap?,

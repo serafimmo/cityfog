@@ -55,6 +55,17 @@ def load_osm() -> OSM:
     return OSM(PBF, bounding_box=SEARCH_BBOX, complete_relations=True)
 
 
+def load_osm_tight() -> OSM:
+    """Загрузчик для ИСКЛЮЧЕНИЙ: узкий bbox по границам сетки + complete_relations=False.
+
+    Иначе get_natural() тянет гигантские водные отношения (Волга/Куйбышевское вдхр),
+    выходящие далеко за город, и падает по памяти (GEOS bad allocation). Воду/landuse
+    нам всё равно достаточно в пределах города — потом обрезаем по его границе.
+    """
+    bbox = [gc.LON_ORIGIN, gc.LAT_ORIGIN, gc.LON_MAX, gc.LAT_MAX]
+    return OSM(PBF, bounding_box=bbox, complete_relations=False)
+
+
 def inspect(osm: OSM):
     """Разведка: какие административные границы есть в районе Казани."""
     b = osm.get_boundaries(boundary_type="administrative")
@@ -99,12 +110,36 @@ def extract_districts(osm: OSM) -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(rows, crs="EPSG:4326")
 
 
+def extract_city(osm: OSM):
+    """Полная граница города из lvl6 'городской округ Казань' (целая, все 7 районов).
+
+    ВАЖНО: НЕ объединение районов — их в данных только 5 из 7. Объединение дало бы
+    дырявый город (без Авиастроительного и Советского) и кривой глобальный %.
+    """
+    b = osm.get_boundaries(boundary_type="administrative")
+    b = b[b["name"].notna()]
+    city = b[(b["admin_level"].astype(str) == "6") &
+             (b["name"].astype(str).str.contains("Казань", na=False))]
+    if city.empty:
+        return None
+    return unary_union(city.geometry.values)
+
+
+def _safe(label, fn):
+    """Вызвать fn() терпимо к ошибкам (битая геометрия/память) — вернуть None при сбое."""
+    try:
+        return fn()
+    except Exception as e:
+        print(f"  ! слой '{label}' пропущен: {e}")
+        return None
+
+
 def extract_exclusions(osm: OSM, city_geom) -> gpd.GeoDataFrame:
     parts = []
-    lu = osm.get_landuse()
+    lu = _safe("landuse", osm.get_landuse)
     if lu is not None and not lu.empty and "landuse" in lu.columns:
         parts.append(lu[lu["landuse"].isin(EXCLUDE_LANDUSE)])
-    nat = osm.get_natural()
+    nat = _safe("natural", osm.get_natural)
     if nat is not None and not nat.empty and "natural" in nat.columns:
         parts.append(nat[nat["natural"].isin(EXCLUDE_NATURAL)])
     if not parts:
@@ -125,16 +160,20 @@ def main():
         inspect(osm)
         return
 
-    print("Извлекаю районы...")
+    print("Извлекаю границу города (lvl6)...")
+    city_geom = extract_city(osm)
+    if city_geom is None:
+        sys.exit("Граница города lvl6 'Казань' не найдена — проверь данные/bbox.")
+    city = gpd.GeoDataFrame({"name": ["Казань"], "geometry": [city_geom]}, crs="EPSG:4326")
+
+    print("Извлекаю районы (для разметки, в данных их 5 из 7)...")
     districts = extract_districts(osm)
     if districts.empty:
         sys.exit("Ни один район не найден — запусти с --inspect и поправь DISTRICT_NAMES.")
 
-    city_geom = unary_union(districts.geometry.values)
-    city = gpd.GeoDataFrame({"name": ["Казань"], "geometry": [city_geom]}, crs="EPSG:4326")
-
-    print("Извлекаю зоны-исключения...")
-    excluded = extract_exclusions(osm, city_geom)
+    print("Извлекаю зоны-исключения (узкий bbox, без complete_relations)...")
+    osm_tight = load_osm_tight()
+    excluded = extract_exclusions(osm_tight, city_geom)
     print(f"  исключений: {len(excluded)}")
 
     districts.to_file(os.path.join(OUT, "kazan_districts.geojson"), driver="GeoJSON")
