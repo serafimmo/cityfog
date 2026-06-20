@@ -100,6 +100,7 @@ import org.maplibre.android.maps.Style
 import ru.cityfog.data.VisitRepository
 import ru.cityfog.map.FogRenderer
 import ru.cityfog.tracking.LocationService
+import ru.cityfog.tracking.TrackingState
 import ru.cityfog.ui.theme.CityFogColors
 
 private val KAZAN = LatLng(55.7963, 49.1088)
@@ -127,7 +128,8 @@ fun MapScreen(modifier: Modifier = Modifier) {
     val styleRef = remember { mutableStateOf<Style?>(null) }
     val rendererRef = remember { mutableStateOf<FogRenderer?>(null) }
     val locationOn = remember { mutableStateOf(false) }
-    var tracking by rememberSaveable { mutableStateOf(false) }
+    // Источник правды о записи — сохранённый флаг: переживает убийство процесса и ребут.
+    var tracking by rememberSaveable { mutableStateOf(TrackingState.isActive(context)) }
     val heatmapOn = rememberSaveable { mutableStateOf(false) }
 
     val mapView = remember {

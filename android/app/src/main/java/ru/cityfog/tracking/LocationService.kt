@@ -62,9 +62,11 @@ class LocationService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            TrackingState.setActive(this, false) // явная остановка — больше не поднимать
             stopSelf()
             return START_NOT_STICKY
         }
+        TrackingState.setActive(this, true) // намерение «вести запись» переживёт перезапуск
         startForegroundCompat()
         startUpdates()
         return START_STICKY // система перезапустит сервис, если убьёт его под нагрузкой
@@ -162,6 +164,7 @@ class LocationService : Service() {
         }
 
         fun stop(context: Context) {
+            TrackingState.setActive(context, false)
             context.stopService(Intent(context, LocationService::class.java))
         }
 
