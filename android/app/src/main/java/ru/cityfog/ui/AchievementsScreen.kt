@@ -89,7 +89,9 @@ fun AchievementsScreen(modifier: Modifier = Modifier) {
 private fun SummaryCard(unlocked: Int, total: Int) {
     val fraction = if (total > 0) unlocked.toFloat() / total else 0f
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, CityFogColors.Cyan400.copy(alpha = 0.18f), RoundedCornerShape(28.dp)),
         shape = RoundedCornerShape(28.dp),
         colors = CardDefaults.cardColors(containerColor = CityFogColors.Navy800),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)

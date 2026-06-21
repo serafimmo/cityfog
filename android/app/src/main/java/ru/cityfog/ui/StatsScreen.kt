@@ -3,6 +3,7 @@ package ru.cityfog.ui
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -191,7 +192,9 @@ fun StatsScreen(modifier: Modifier = Modifier) {
 @Composable
 private fun HeroStatCard(percent: Float, visited: Int, total: Int) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, CityFogColors.Cyan400.copy(alpha = 0.18f), RoundedCornerShape(28.dp)),
         shape = RoundedCornerShape(28.dp),
         colors = CardDefaults.cardColors(containerColor = CityFogColors.Navy800),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)

@@ -3,10 +3,10 @@ package ru.cityfog.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -57,35 +57,27 @@ fun MainScreen(modifier: Modifier = Modifier) {
 
     Box(modifier = modifier.fillMaxSize()) {
         // Карта всегда живёт в композиции, чтобы не пересоздавать MapView.
+        // Единый плавный переход между вкладками: мягкий кросс-фейд с лёгким подъёмом.
+        val tabEnter = fadeIn(tween(260)) + slideInVertically(tween(260)) { it / 14 }
+        val tabExit = fadeOut(tween(180))
+
         AnimatedVisibility(
             visible = selected == 0,
-            enter = fadeIn(),
-            exit = fadeOut()
+            enter = fadeIn(tween(260)),
+            exit = fadeOut(tween(180))
         ) {
             MapScreen(modifier = Modifier.fillMaxSize())
         }
 
-        AnimatedVisibility(
-            visible = selected == 1,
-            enter = slideInHorizontally { it },
-            exit = slideOutHorizontally { it }
-        ) {
+        AnimatedVisibility(visible = selected == 1, enter = tabEnter, exit = tabExit) {
             StatsScreen(modifier = Modifier.fillMaxSize())
         }
 
-        AnimatedVisibility(
-            visible = selected == 2,
-            enter = slideInHorizontally { it },
-            exit = slideOutHorizontally { it }
-        ) {
+        AnimatedVisibility(visible = selected == 2, enter = tabEnter, exit = tabExit) {
             AchievementsScreen(modifier = Modifier.fillMaxSize())
         }
 
-        AnimatedVisibility(
-            visible = selected == 3,
-            enter = slideInHorizontally { it },
-            exit = slideOutHorizontally { it }
-        ) {
+        AnimatedVisibility(visible = selected == 3, enter = tabEnter, exit = tabExit) {
             SettingsScreen(modifier = Modifier.fillMaxSize())
         }
 
