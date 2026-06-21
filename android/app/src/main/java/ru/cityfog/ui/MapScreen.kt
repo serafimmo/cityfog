@@ -22,6 +22,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -79,6 +80,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -235,7 +237,7 @@ fun MapScreen(modifier: Modifier = Modifier) {
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .safeDrawingPadding()
-                .padding(start = 12.dp, bottom = 12.dp)
+                .padding(start = 12.dp, bottom = 100.dp)
         ) {
             DistrictsPanel(progress = progress)
         }
@@ -247,7 +249,8 @@ fun MapScreen(modifier: Modifier = Modifier) {
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .safeDrawingPadding()
-                .padding(16.dp)
+                // Низ с запасом под плавающий навбар (≈92dp), чтобы кнопки не залезали на меню.
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp)
         ) {
             Controls(
                 tracking = tracking,
@@ -548,33 +551,14 @@ private fun SplashOverlay() {
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
+            Image(
+                painter = painterResource(ru.cityfog.R.mipmap.ic_launcher_art),
+                contentDescription = null,
                 modifier = Modifier
-                    .size(120.dp)
-                    .scale(pulse),
-                contentAlignment = Alignment.Center
-            ) {
-                // Символичная «карта» из клеток: 5×5 сетка с мерцающими точками.
-                val cellSize = 14.dp
-                val gap = 4.dp
-                val grid = 5
-                Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                    repeat(grid) { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                            repeat(grid) { col ->
-                                val active = (row + col) % 3 == 0
-                                val alpha = if (active) 1f else 0.25f
-                                Box(
-                                    Modifier
-                                        .size(cellSize)
-                                        .clip(RoundedCornerShape(3.dp))
-                                        .background(CYAN.copy(alpha = alpha))
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+                    .size(132.dp)
+                    .scale(pulse)
+                    .clip(RoundedCornerShape(30.dp))
+            )
             Spacer(Modifier.height(28.dp))
             Text(
                 "CityFog",

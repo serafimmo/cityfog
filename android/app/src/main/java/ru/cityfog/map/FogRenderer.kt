@@ -34,6 +34,9 @@ class FogRenderer(style: Style) {
 
     private val fogSource = GeoJsonSource(FOG_SRC)
     private val fogLayer = FillLayer(FOG_FILL, FOG_SRC)
+    private val claimedSource = GeoJsonSource(CLAIMED_SRC)
+    private val claimedGlow = FillLayer(CLAIMED_GLOW, CLAIMED_SRC)
+    private val claimedFill = FillLayer(CLAIMED_FILL, CLAIMED_SRC)
     private val edgeSource = GeoJsonSource(EDGE_SRC)
     private val heatSource = GeoJsonSource(HEAT_SRC)
     private val heatLayer = HeatmapLayer(HEAT_LAYER, HEAT_SRC)
@@ -41,6 +44,7 @@ class FogRenderer(style: Style) {
 
     init {
         style.addSource(fogSource)
+        style.addSource(claimedSource)
         style.addSource(edgeSource)
         style.addSource(heatSource)
 
@@ -52,13 +56,30 @@ class FogRenderer(style: Style) {
             PropertyFactory.fillOpacity(0.45f)
         )
         style.addLayer(fogLayer)
-        // Внешнее размытое свечение кромки.
+
+        // «Захваченная территория»: два слоя поверх тумана.
+        //  1) Глубокий синий подслой (большая зона, чтобы было «тело» свечения).
+        claimedGlow.setProperties(
+            PropertyFactory.fillColor(GLOW_DEEP),
+            PropertyFactory.fillAntialias(true),
+            PropertyFactory.fillOpacity(0.22f)
+        )
+        style.addLayer(claimedGlow)
+        //  2) Бирюзовая «засветка» сверху — собственно цвет освоенной зоны.
+        claimedFill.setProperties(
+            PropertyFactory.fillColor(GLOW_COLOR),
+            PropertyFactory.fillAntialias(true),
+            PropertyFactory.fillOpacity(0.26f)
+        )
+        style.addLayer(claimedFill)
+
+        // Внешнее размытое свечение кромки — широкое и мягкое, как неоновый ореол.
         style.addLayer(
             LineLayer(EDGE_GLOW, EDGE_SRC).withProperties(
                 PropertyFactory.lineColor(GLOW_COLOR),
-                PropertyFactory.lineWidth(6f),
-                PropertyFactory.lineOpacity(0.35f),
-                PropertyFactory.lineBlur(4f),
+                PropertyFactory.lineWidth(9f),
+                PropertyFactory.lineOpacity(0.5f),
+                PropertyFactory.lineBlur(8f),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
             )
@@ -67,8 +88,9 @@ class FogRenderer(style: Style) {
         style.addLayer(
             LineLayer(EDGE_CORE, EDGE_SRC).withProperties(
                 PropertyFactory.lineColor(CORE_COLOR),
-                PropertyFactory.lineWidth(1.6f),
+                PropertyFactory.lineWidth(1.8f),
                 PropertyFactory.lineOpacity(0.95f),
+                PropertyFactory.lineBlur(0.5f),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
             )
@@ -143,6 +165,11 @@ class FogRenderer(style: Style) {
         val z = map.cameraPosition.zoom
         val op = (0.60 + (z - 11.0) / 5.0 * (0.80 - 0.60)).coerceIn(0.55, 0.80)
         fogLayer.setProperties(PropertyFactory.fillOpacity(op.toFloat()))
+        // Свечение «захвата» ярче издалека (чтобы освоенное читалось поверх тёмного
+        // полога), мягче вблизи (там и так раскрыта карта сквозь дыры).
+        val glowOp = (0.34 - (z - 11.0) / 5.0 * (0.34 - 0.16)).coerceIn(0.16, 0.34)
+        claimedFill.setProperties(PropertyFactory.fillOpacity(glowOp.toFloat()))
+        claimedGlow.setProperties(PropertyFactory.fillOpacity((glowOp * 0.8).toFloat()))
 
         // Внешнее кольцо тумана с запасом 60% — чтобы при панораме не отставало от края.
         val dLat = (ne.latitude - sw.latitude) * 0.6
@@ -155,7 +182,7 @@ class FogRenderer(style: Style) {
             )
         )
 
-        if (map.cameraPosition.zoom >= MIN_ZOOM) {
+        if (z >= REVEAL_ZOOM) {
             // Берём клетки чуть шире экрана (15%), чтобы контур у кромки экрана не «обрезался».
             val mLat = (ne.latitude - sw.latitude) * 0.15
             val mLon = (ne.longitude - sw.longitude) * 0.15
@@ -164,21 +191,31 @@ class FogRenderer(style: Style) {
                 ne.longitude + mLon, ne.latitude + mLat
             )
             if (ids.isNotEmpty()) {
-                val set = HashSet(ids)
-                // Дыры (объединённые прямоугольники). mergeRects съедает копию.
+                val cutHoles = z >= HOLE_ZOOM
+                // Объединённые прямоугольники: один проход на свечение «захвата» и дыры.
+                val claimed = ArrayList<Feature>()
                 for (r in mergeRects(HashSet(ids))) {
-                    rings.add(
-                        rectRing(
-                            GridMapper.westLon(r[0]), GridMapper.southLat(r[1]),
-                            GridMapper.eastLon(r[2]), GridMapper.northLat(r[3])
-                        )
+                    val ring = rectRing(
+                        GridMapper.westLon(r[0]), GridMapper.southLat(r[1]),
+                        GridMapper.eastLon(r[2]), GridMapper.northLat(r[3])
                     )
+                    claimed.add(Feature.fromGeometry(Polygon.fromLngLats(listOf(ring))))
+                    if (cutHoles) rings.add(ring)  // вблизи прорезаем дыру — видно дневную карту
                 }
-                edgeSource.setGeoJson(Feature.fromGeometry(MultiLineString.fromLngLats(boundary(set))))
+                claimedSource.setGeoJson(FeatureCollection.fromFeatures(claimed))
+                if (z >= RIM_ZOOM) {
+                    edgeSource.setGeoJson(
+                        Feature.fromGeometry(MultiLineString.fromLngLats(boundary(HashSet(ids))))
+                    )
+                } else {
+                    edgeSource.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+                }
             } else {
+                claimedSource.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
                 edgeSource.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
             }
         } else {
+            claimedSource.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
             edgeSource.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         }
 
@@ -250,15 +287,23 @@ class FogRenderer(style: Style) {
 
     companion object {
         private const val FOG_SRC = "fog-src"
+        private const val CLAIMED_SRC = "claimed-src"
         private const val EDGE_SRC = "fog-edge-src"
         private const val FOG_FILL = "fog-fill"
+        private const val CLAIMED_GLOW = "claimed-glow"
+        private const val CLAIMED_FILL = "claimed-fill"
         private const val EDGE_GLOW = "fog-edge-glow"
         private const val EDGE_CORE = "fog-edge-core"
         private const val HEAT_SRC = "heat-src"
         private const val HEAT_LAYER = "heat-layer"
-        private const val MIN_ZOOM = 13.5
+        // Освоенная зона светится уже с городского зума (видно издалека); дыры и
+        // яркая кромка появляются на уличном — прогрессивное раскрытие деталей.
+        private const val REVEAL_ZOOM = 10.0
+        private const val HOLE_ZOOM = 13.0
+        private const val RIM_ZOOM = 13.0
         private const val FOG_COLOR = "#0A0E27"  // глубокая полночная синь
-        private const val GLOW_COLOR = "#22D3EE" // cyan-400 — свечение кромки
+        private const val GLOW_COLOR = "#22D3EE" // cyan-400 — засветка освоенной зоны
+        private const val GLOW_DEEP = "#0EA5E9"  // sky-500 — синее «тело» свечения
         private const val CORE_COLOR = "#CFFAFE" // cyan-50 — яркое ядро контура
     }
 }
