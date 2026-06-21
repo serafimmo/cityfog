@@ -149,6 +149,17 @@ fun MapScreen(modifier: Modifier = Modifier) {
                     rendererRef.value = renderer
                     renderer.refresh(map)
                     map.addOnCameraIdleListener { renderer.refresh(map) }
+                    // На момент style-loaded вьюпорт ещё может быть не измерен —
+                    // projection.visibleRegion вырождается, и первый туман строится
+                    // пустым (карта открывается без полога, пока её не подвигаешь).
+                    // Дорисовываем один раз, когда карта впервые «устаканилась».
+                    val mv = this@apply
+                    mv.addOnDidBecomeIdleListener(object : MapView.OnDidBecomeIdleListener {
+                        override fun onDidBecomeIdle() {
+                            renderer.refresh(map)
+                            mv.removeOnDidBecomeIdleListener(this)
+                        }
+                    })
                     if (hasFineLocation(context)) {
                         enableUserLocation(context, map, style, follow = false)
                         locationOn.value = true
