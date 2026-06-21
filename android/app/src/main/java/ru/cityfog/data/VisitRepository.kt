@@ -43,8 +43,12 @@ object VisitRepository {
         val bestDayCells: Int,
         val topDistrictId: Int,
         val topDistrictName: String,
-        val topDistrictPercent: Float
+        val topDistrictPercent: Float,
+        // Открыто клеток по дням за последние DAILY_DAYS дней (старые→новые, последний = сегодня).
+        val dailyCells: IntArray = IntArray(DAILY_DAYS)
     )
+
+    const val DAILY_DAYS = 14
 
     private lateinit var store: VisitStore
     private val visited = HashMap<Long, Long>()
@@ -156,6 +160,13 @@ object VisitRepository {
         val bestDay = perDay.values.maxOrNull() ?: 0
         val streak = computeStreak(perDay.keys.sorted())
 
+        // Ряд «клеток в день» за последние DAILY_DAYS дней: индекс 0 — самый старый, последний — сегодня.
+        val daily = IntArray(DAILY_DAYS)
+        for (i in 0 until DAILY_DAYS) {
+            val dayStart = todayStart - TimeUnit.DAYS.toMillis((DAILY_DAYS - 1 - i).toLong())
+            daily[i] = perDay.getOrDefault(dayStart, 0)
+        }
+
         val topId = (1..8).maxByOrNull { perDistrict[it] } ?: 0
         val topName = if (topId in 1..8) AvailabilityMask.districtName(topId) else ""
         val topTotal = if (topId in 1..8) AvailabilityMask.districtTotal(topId) else 0
@@ -170,7 +181,8 @@ object VisitRepository {
             bestDayCells = bestDay,
             topDistrictId = topId,
             topDistrictName = topName,
-            topDistrictPercent = topPercent
+            topDistrictPercent = topPercent,
+            dailyCells = daily
         )
     }
 

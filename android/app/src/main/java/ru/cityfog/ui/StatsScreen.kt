@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -42,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -161,6 +163,11 @@ fun StatsScreen(modifier: Modifier = Modifier) {
 
         Spacer(Modifier.height(24.dp))
 
+        // График активности за 2 недели.
+        ActivityChart(daily = stats.dailyCells)
+
+        Spacer(Modifier.height(24.dp))
+
         // Топ-район.
         if (stats.topDistrictId != 0) {
             TopDistrictCard(stats)
@@ -220,6 +227,111 @@ private fun HeroStatCard(percent: Float, visited: Int, total: Int) {
                         "клеток открыто",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActivityChart(daily: IntArray) {
+    val max = (daily.maxOrNull() ?: 0)
+    val sum = daily.sum()
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Column {
+                    Text(
+                        "АКТИВНОСТЬ",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "Открыто клеток по дням",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+                Text(
+                    "${daily.size} дней",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            if (sum == 0) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(92.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "Пока тихо — выйди прогуляться,\nи здесь появятся столбики",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = CityFogColors.TextMuted
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(92.dp),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    daily.forEachIndexed { i, count ->
+                        val isToday = i == daily.lastIndex
+                        val frac = if (max > 0) count.toFloat() / max else 0f
+                        val animated by animateFloatAsState(
+                            targetValue = frac.coerceIn(0f, 1f),
+                            label = "bar-$i"
+                        )
+                        // Высота столбика — доля от максимума; пустой день — едва заметный «огрызок».
+                        val shown = if (count == 0) 0.02f else animated.coerceAtLeast(0.06f)
+                        val barColor = if (isToday) CityFogColors.Teal400 else CityFogColors.Cyan400
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(shown)
+                                .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+                                .background(
+                                    if (count == 0) SolidColor(CityFogColors.Navy600)
+                                    else Brush.verticalGradient(
+                                        listOf(barColor, barColor.copy(alpha = 0.55f))
+                                    )
+                                )
+                        )
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        "$sum за 2 недели",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "макс. $max/день",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = CityFogColors.Cyan400,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
             }
@@ -408,6 +520,8 @@ private fun StatsCardsPreview() {
                     Modifier.weight(1f)
                 )
             }
+            Spacer(Modifier.height(16.dp))
+            ActivityChart(intArrayOf(0, 0, 12, 30, 8, 0, 45, 60, 22, 0, 18, 73, 40, 55))
             Spacer(Modifier.height(16.dp))
             DistrictBar(VisitRepository.DistrictProgress(5, "Ново-Савиновский", 2600, 5000))
         }
