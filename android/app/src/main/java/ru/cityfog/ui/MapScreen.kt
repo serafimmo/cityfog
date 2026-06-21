@@ -519,8 +519,8 @@ private fun DistrictRow(d: VisitRepository.DistrictProgress) {
 internal fun districtColor(id: Int): Color =
     CityFogColors.DistrictColors.getOrElse(id - 1) { CityFogColors.Cyan400 }
 
-private fun fmtPct(p: Float): String = when {
-    p <= 0f -> "0%"
+internal fun fmtPct(p: Float): String = when {
+    p <= 0f -> "0.0%"
     p < 1f -> "%.2f%%".format(p)
     p < 10f -> "%.1f%%".format(p)
     else -> "%.0f%%".format(p)
@@ -788,6 +788,16 @@ private fun startFollowing(
     if (map == null || style == null || !hasFineLocation(context)) return
     enableUserLocation(context, map, style, follow = true)
     locationOn.value = true
+    // Железобетонный зум «к себе»: zoomWhileTracking иногда не срабатывает, если
+    // компонент локации уже активен (после рестарта). Поэтому, если знаем позицию,
+    // явно анимируем камеру к ней на уличный зум.
+    val loc = try { map.locationComponent.lastKnownLocation } catch (_: Exception) { null }
+    if (loc != null) {
+        map.animateCamera(
+            CameraUpdateFactory.newLatLngZoom(LatLng(loc.latitude, loc.longitude), FOLLOW_ZOOM),
+            700
+        )
+    }
 }
 
 private fun hasFineLocation(c: Context): Boolean =

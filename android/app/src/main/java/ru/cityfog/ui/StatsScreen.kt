@@ -38,7 +38,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -210,10 +209,10 @@ private fun HeroStatCard(percent: Float, visited: Int, total: Int) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AnimatedStatNumber(
                     value = percent,
-                    suffix = "%",
                     style = MaterialTheme.typography.displayLarge,
                     fontWeight = FontWeight.ExtraBold,
-                    color = CityFogColors.Cyan400
+                    color = CityFogColors.Cyan400,
+                    format = { fmtPct(it) }
                 )
                 Spacer(Modifier.width(20.dp))
                 Column {
@@ -374,21 +373,24 @@ private fun QuickStatCard(
             Text(
                 label,
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
             )
             Text(
                 value,
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1
             )
-            if (unit.isNotEmpty()) {
-                Text(
-                    unit,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            // Строку единиц рисуем всегда (пустую — пробелом), чтобы все карточки
+            // в ряду были одной высоты и сетка не выглядела кривой.
+            Text(
+                unit.ifEmpty { " " },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
         }
     }
 }
@@ -403,11 +405,13 @@ private fun TopDistrictCard(stats: VisitRepository.Stats) {
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Row(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     "Лидирует район",
                     style = MaterialTheme.typography.labelMedium,
@@ -421,6 +425,7 @@ private fun TopDistrictCard(stats: VisitRepository.Stats) {
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
+            Spacer(Modifier.width(16.dp))
             Box(
                 modifier = Modifier
                     .size(64.dp)
@@ -429,8 +434,8 @@ private fun TopDistrictCard(stats: VisitRepository.Stats) {
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    "${stats.topDistrictPercent.toInt()}%",
-                    style = MaterialTheme.typography.titleMedium,
+                    fmtPct(stats.topDistrictPercent),
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = color
                 )
@@ -489,19 +494,17 @@ private fun DistrictBar(d: VisitRepository.DistrictProgress) {
 @Composable
 private fun AnimatedStatNumber(
     value: Float,
-    suffix: String,
     style: androidx.compose.ui.text.TextStyle,
     fontWeight: FontWeight,
-    color: androidx.compose.ui.graphics.Color
+    color: androidx.compose.ui.graphics.Color,
+    format: (Float) -> String
 ) {
-    var displayed by remember { mutableStateOf(0f) }
     val animated by animateFloatAsState(
         targetValue = value,
         label = "stat-number"
     )
-    LaunchedEffect(animated) { displayed = animated }
     Text(
-        "${displayed.toInt()}$suffix",
+        format(animated),
         style = style,
         fontWeight = fontWeight,
         color = color

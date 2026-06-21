@@ -1,7 +1,12 @@
 package ru.cityfog.ui
 
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -53,6 +59,8 @@ import ru.cityfog.data.TrackRepository
 import ru.cityfog.data.VisitRepository
 import ru.cityfog.ui.theme.CityFogColors
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -90,11 +98,24 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         SettingsGroup(title = "Данные") {
             SettingsItem(
                 icon = Icons.Default.Share,
+                iconBg = CityFogColors.Cyan400.copy(alpha = 0.15f),
+                iconTint = CityFogColors.Cyan400,
+                title = "Поделиться клетками",
+                subtitle = "Отправить CSV в другое приложение",
+                onClick = { scope.launch { shareCells(context) } }
+            )
+            SettingsItem(
+                icon = Icons.Default.Download,
                 iconBg = CityFogColors.Teal500.copy(alpha = 0.15f),
                 iconTint = CityFogColors.Teal400,
-                title = "Экспорт посещённых клеток",
-                subtitle = "Поделиться CSV со списком клеток",
-                onClick = { scope.launch { exportCells(context) } }
+                title = "Скачать клетки в файл",
+                subtitle = "Сохранить CSV в папку «Загрузки»",
+                onClick = {
+                    scope.launch {
+                        val msg = downloadCells(context)
+                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                    }
+                }
             )
             SettingsItem(
                 icon = Icons.Default.Delete,
@@ -233,37 +254,78 @@ private fun SettingsItem(
     }
 }
 
-private suspend fun exportCells(context: Context) {
-    withContext(Dispatchers.IO) {
-        val file = File(context.cacheDir, "cityfog_export_${timestamp()}.csv")
-        file.bufferedWriter().use { out ->
-            out.write("cell_id,cell_x,cell_y,first_visit_ts,first_visit_iso\n")
-            // Прямой доступ к файлу — проще, чем тащить всё через репозиторий.
-            val data = java.io.File(context.filesDir, "visited.bin").readBytes()
-            val count = data.size / 16
-            val buf = java.nio.ByteBuffer.wrap(data).order(java.nio.ByteOrder.LITTLE_ENDIAN)
-            repeat(count) {
-                val id = buf.long
-                val ts = buf.long
-                val x = (id ushr 32).toInt()
-                val y = (id and 0xFFFFFFFFL).toInt()
-                out.write("$id,$x,$y,$ts,${iso(ts)}\n")
+/**
+ * Сохранить список открытых клеток в CSV прямо в публичную папку «Загрузки».
+ * На Android 10+ — через MediaStore (без разрешений, файл виден в «Файлах»);
+ * на старых — в app-specific external dir. Возвращает текст для тоста.
+ */
+private suspend fun downloadCells(context: Context): String = withContext(Dispatchers.IO) {
+    try {
+        val name = "cityfog_cells_${timestamp()}.csv"
+        val bytes = buildCellsCsv(context).toByteArray()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val resolver = context.contentResolver
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, name)
+                put(MediaStore.Downloads.MIME_TYPE, "text/csv")
+                put(MediaStore.Downloads.IS_PENDING, 1)
             }
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: return@withContext "Не удалось создать файл"
+            resolver.openOutputStream(uri)?.use { it.write(bytes) }
+            values.clear()
+            values.put(MediaStore.Downloads.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+            "Сохранено в «Загрузки»: $name"
+        } else {
+            @Suppress("DEPRECATION")
+            val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            dir.mkdirs()
+            val f = File(dir, name)
+            f.writeBytes(bytes)
+            "Сохранено: ${f.absolutePath}"
         }
-        shareFile(context, file, "text/csv")
+    } catch (e: Exception) {
+        "Не удалось сохранить: ${e.message}"
     }
 }
 
-private fun shareFile(context: Context, file: File, mime: String) {
-    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+/** Поделиться CSV открытых клеток через системный «Поделиться» (во временный файл + FileProvider). */
+private suspend fun shareCells(context: Context) {
+    val uri = withContext(Dispatchers.IO) {
+        val file = File(context.cacheDir, "cityfog_cells_${timestamp()}.csv")
+        file.writeText(buildCellsCsv(context))
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    }
     val intent = Intent(Intent.ACTION_SEND).apply {
-        type = mime
+        type = "text/csv"
         putExtra(Intent.EXTRA_STREAM, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    val chooser = Intent.createChooser(intent, "Экспорт CityFog")
-    chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    context.startActivity(chooser)
+    context.startActivity(
+        Intent.createChooser(intent, "Поделиться клетками")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    )
+}
+
+/** CSV открытых клеток (читаем visited.bin напрямую — проще, чем через репозиторий). */
+private fun buildCellsCsv(context: Context): String {
+    val sb = StringBuilder()
+    sb.append("cell_id,cell_x,cell_y,first_visit_ts,first_visit_iso\n")
+    val file = File(context.filesDir, "visited.bin")
+    if (file.exists()) {
+        val data = file.readBytes()
+        val count = data.size / 16
+        val buf = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
+        repeat(count) {
+            val id = buf.long
+            val ts = buf.long
+            val x = (id ushr 32).toInt()
+            val y = (id and 0xFFFFFFFFL).toInt()
+            sb.append("$id,$x,$y,$ts,${iso(ts)}\n")
+        }
+    }
+    return sb.toString()
 }
 
 private fun timestamp(): String =
