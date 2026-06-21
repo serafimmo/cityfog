@@ -33,6 +33,7 @@ import ru.cityfog.grid.GridMapper
 class FogRenderer(style: Style) {
 
     private val fogSource = GeoJsonSource(FOG_SRC)
+    private val fogLayer = FillLayer(FOG_FILL, FOG_SRC)
     private val edgeSource = GeoJsonSource(EDGE_SRC)
     private val heatSource = GeoJsonSource(HEAT_SRC)
     private val heatLayer = HeatmapLayer(HEAT_LAYER, HEAT_SRC)
@@ -43,19 +44,14 @@ class FogRenderer(style: Style) {
         style.addSource(edgeSource)
         style.addSource(heatSource)
 
-        style.addLayer(
-            FillLayer(FOG_FILL, FOG_SRC).withProperties(
-                PropertyFactory.fillColor(FOG_COLOR),
-                PropertyFactory.fillAntialias(true),
-                PropertyFactory.fillOpacity(
-                    Expression.interpolate(
-                        Expression.linear(), Expression.zoom(),
-                        Expression.stop(11f, 0.32f),
-                        Expression.stop(15f, 0.56f)
-                    )
-                )
-            )
+        // Прозрачность задаём плавно из кода в refresh() (надёжнее зум-выражения стиля,
+        // которое на части рендереров вырождалось в ~0 — туман пропадал).
+        fogLayer.setProperties(
+            PropertyFactory.fillColor(FOG_COLOR),
+            PropertyFactory.fillAntialias(true),
+            PropertyFactory.fillOpacity(0.45f)
         )
+        style.addLayer(fogLayer)
         // Внешнее размытое свечение кромки.
         style.addLayer(
             LineLayer(EDGE_GLOW, EDGE_SRC).withProperties(
@@ -140,6 +136,11 @@ class FogRenderer(style: Style) {
         val b = map.projection.visibleRegion.latLngBounds
         val ne = b.northEast
         val sw = b.southWest
+
+        // Туман гуще при приближении (вдали полупрозрачный — удобно ориентироваться).
+        val z = map.cameraPosition.zoom
+        val op = (0.34 + (z - 11.0) / 4.0 * (0.56 - 0.34)).coerceIn(0.30, 0.56)
+        fogLayer.setProperties(PropertyFactory.fillOpacity(op.toFloat()))
 
         // Внешнее кольцо тумана с запасом 60% — чтобы при панораме не отставало от края.
         val dLat = (ne.latitude - sw.latitude) * 0.6
