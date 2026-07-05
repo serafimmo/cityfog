@@ -35,6 +35,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,15 +61,12 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -84,6 +83,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -125,6 +125,7 @@ import ru.cityfog.tracking.LocationService
 import ru.cityfog.tracking.SessionTracker
 import ru.cityfog.tracking.TrackingState
 import ru.cityfog.ui.theme.CityFogColors
+import ru.cityfog.ui.theme.DisplayFamily
 import ru.cityfog.ui.theme.MonoFamily
 import ru.cityfog.ui.theme.glassPanel
 
@@ -761,19 +762,24 @@ private fun WalkSummaryDialog(summary: WalkSummary, onDismiss: () -> Unit) {
                     }
                 }
                 Spacer(Modifier.height(24.dp))
-                Button(
-                    onClick = onDismiss,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = TEAL_BRIGHT,
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth()
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .shadow(
+                            14.dp, RoundedCornerShape(18.dp),
+                            ambientColor = CYAN, spotColor = CYAN
+                        )
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Brush.horizontalGradient(listOf(TEAL_BRIGHT, CYAN)))
+                        .clickable { onDismiss() }
+                        .padding(vertical = 14.dp),
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
                         "Отлично",
+                        style = MaterialTheme.typography.titleMedium.copy(fontFamily = DisplayFamily),
                         fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(vertical = 4.dp)
+                        color = CityFogColors.Navy900
                     )
                 }
             }
@@ -905,45 +911,23 @@ private fun Controls(
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Тепловая карта: во включённом состоянии кнопка «дышит» пульсирующим ореолом.
-        val heatContainer by animateColorAsState(
-            targetValue = if (heatmapOn.value) CYAN
-            else MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-            animationSpec = tween(300),
-            label = "heat-color"
-        )
-        Box(contentAlignment = Alignment.Center) {
-            if (heatmapOn.value) PulseHalo(color = CYAN, size = 40.dp)
-            SmallFloatingActionButton(
-                onClick = {
-                    val on = !heatmapOn.value
-                    heatmapOn.value = on
-                    rendererRef.value?.setHeatmap(on)
-                },
-                containerColor = heatContainer,
-                contentColor = if (heatmapOn.value) CityFogColors.Navy900 else CYAN,
-                shape = CircleShape
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Whatshot,
-                    contentDescription = "Тепловая карта",
-                    modifier = Modifier.size(22.dp)
-                )
+        GlassIconButton(
+            icon = Icons.Default.Whatshot,
+            contentDescription = "Тепловая карта",
+            active = heatmapOn.value,
+            onClick = {
+                val on = !heatmapOn.value
+                heatmapOn.value = on
+                rendererRef.value?.setHeatmap(on)
             }
-        }
-        SmallFloatingActionButton(
-            onClick = { startFollowing(context, mapRef.value, styleRef.value, locationOn) },
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-            contentColor = CYAN,
-            shape = CircleShape
-        ) {
-            Icon(
-                imageVector = Icons.Default.MyLocation,
-                contentDescription = "Моё местоположение",
-                modifier = Modifier.size(22.dp)
-            )
-        }
-        ExtendedFloatingActionButton(
+        )
+        GlassIconButton(
+            icon = Icons.Default.MyLocation,
+            contentDescription = "Моё местоположение",
+            onClick = { startFollowing(context, mapRef.value, styleRef.value, locationOn) }
+        )
+        StartStopButton(
+            tracking = tracking,
             onClick = {
                 if (tracking) {
                     // Сначала фиксируем итоги (пока сессия жива), потом гасим сервис.
@@ -971,43 +955,6 @@ private fun Controls(
                             )
                         )
                     }
-                }
-            },
-            containerColor = animateColorAsState(
-                targetValue = if (tracking) REC_RED else TEAL_BRIGHT,
-                animationSpec = tween(350),
-                label = "fab-color"
-            ).value,
-            contentColor = Color.White,
-            shape = CircleShape,
-            icon = {
-                // Иконка сменяется с лёгким «схлопыванием» — старт/стоп ощущается щелчком.
-                AnimatedContent(
-                    targetState = tracking,
-                    transitionSpec = {
-                        (scaleIn(tween(220)) + fadeIn(tween(220)))
-                            .togetherWith(scaleOut(tween(140)) + fadeOut(tween(140)))
-                    },
-                    label = "fab-icon"
-                ) { t ->
-                    Icon(
-                        imageVector = if (t) Icons.Default.Stop else Icons.Default.PlayArrow,
-                        contentDescription = if (t) "Стоп" else "Старт"
-                    )
-                }
-            },
-            text = {
-                AnimatedContent(
-                    targetState = tracking,
-                    transitionSpec = {
-                        (fadeIn(tween(220))).togetherWith(fadeOut(tween(140)))
-                    },
-                    label = "fab-text"
-                ) { t ->
-                    Text(
-                        if (t) "Стоп" else "Старт",
-                        fontWeight = FontWeight.SemiBold
-                    )
                 }
             }
         )
@@ -1038,6 +985,108 @@ private fun Controls(
                 )
             }
         )
+    }
+}
+
+/** Круглая стеклянная кнопка карты; в активном состоянии — залита градиентом и светится. */
+@Composable
+private fun GlassIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String?,
+    onClick: () -> Unit,
+    active: Boolean = false
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.92f else 1f,
+        animationSpec = spring(dampingRatio = 0.5f, stiffness = 650f),
+        label = "gib-scale"
+    )
+    Box(contentAlignment = Alignment.Center) {
+        if (active) PulseHalo(color = CYAN, size = 44.dp)
+        Box(
+            modifier = Modifier
+                .size(46.dp)
+                .scale(scale)
+                .then(
+                    if (active) Modifier
+                        .shadow(14.dp, CircleShape, ambientColor = CYAN, spotColor = CYAN)
+                        .clip(CircleShape)
+                        .background(Brush.linearGradient(listOf(TEAL_BRIGHT, CYAN)))
+                    else Modifier.glassPanel(23.dp)
+                )
+                .clickable(interactionSource = interaction, indication = ripple()) { onClick() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = if (active) CityFogColors.Navy900 else CYAN,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+    }
+}
+
+/** Главная кнопка «Старт/Стоп»: неоновая градиентная капсула с цветным свечением. */
+@Composable
+private fun StartStopButton(tracking: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.94f else 1f,
+        animationSpec = spring(dampingRatio = 0.5f, stiffness = 650f),
+        label = "fab-press"
+    )
+    val glow by animateColorAsState(
+        targetValue = if (tracking) REC_RED else CYAN,
+        animationSpec = tween(350),
+        label = "fab-glow"
+    )
+    Row(
+        modifier = Modifier
+            .scale(scale)
+            .shadow(20.dp, CircleShape, ambientColor = glow, spotColor = glow)
+            .clip(CircleShape)
+            .background(
+                Brush.horizontalGradient(
+                    if (tracking) listOf(Color(0xFFF97316), Color(0xFFEF4444))
+                    else listOf(TEAL_BRIGHT, CYAN)
+                )
+            )
+            .clickable(interactionSource = interaction, indication = ripple()) { onClick() }
+            .padding(horizontal = 26.dp, vertical = 15.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        val content = if (tracking) Color.White else CityFogColors.Navy900
+        AnimatedContent(
+            targetState = tracking,
+            transitionSpec = {
+                (scaleIn(tween(220)) + fadeIn(tween(220)))
+                    .togetherWith(scaleOut(tween(140)) + fadeOut(tween(140)))
+            },
+            label = "fab-icon"
+        ) { t ->
+            Icon(
+                imageVector = if (t) Icons.Default.Stop else Icons.Default.PlayArrow,
+                contentDescription = if (t) "Стоп" else "Старт",
+                tint = content
+            )
+        }
+        AnimatedContent(
+            targetState = tracking,
+            transitionSpec = { fadeIn(tween(220)).togetherWith(fadeOut(tween(140))) },
+            label = "fab-text"
+        ) { t ->
+            Text(
+                if (t) "Стоп" else "Старт",
+                style = MaterialTheme.typography.titleMedium.copy(fontFamily = DisplayFamily),
+                fontWeight = FontWeight.SemiBold,
+                color = content
+            )
+        }
     }
 }
 

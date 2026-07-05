@@ -53,46 +53,89 @@ fun Modifier.glassPanel(radius: Dp = 24.dp): Modifier {
 
 @Composable
 fun AuroraBackground(modifier: Modifier = Modifier) {
-    val t = rememberInfiniteTransition(label = "aurora")
-    // Один медленный параметр двигает все орбы в противофазе — живо, но не суетливо.
-    val drift by t.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
+    val t = rememberInfiniteTransition(label = "scanner")
+    // Сканлайн медленно проходит сверху вниз и начинает заново.
+    val scan by t.animateFloat(
+        initialValue = -0.15f,
+        targetValue = 1.15f,
         animationSpec = infiniteRepeatable(
-            animation = tween(18000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
+            animation = tween(11000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
         ),
-        label = "aurora-drift"
+        label = "scanline"
     )
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-        // Фиолетовая аврора — верхний левый угол.
-        val c1 = Offset(w * (0.10f + 0.25f * drift), h * (0.10f + 0.06f * drift))
-        drawCircle(
-            brush = Brush.radialGradient(
-                listOf(CityFogColors.Violet500.copy(alpha = 0.22f), Color.Transparent),
-                center = c1, radius = w * 0.85f
+        val cell = w / 12f // сетка «кварталов» — отсылка к клеткам 12 м
+
+        // 1. Тонкая сетка сканера: едва заметные линии, как миллиметровка прибора.
+        val gridColor = CityFogColors.Cyan300.copy(alpha = 0.08f)
+        var x = 0f
+        while (x <= w) {
+            drawLine(gridColor, Offset(x, 0f), Offset(x, h), strokeWidth = 1f)
+            x += cell
+        }
+        var y = 0f
+        while (y <= h) {
+            drawLine(gridColor, Offset(0f, y), Offset(w, y), strokeWidth = 1f)
+            y += cell
+        }
+
+        // 2. Редкие «зажжённые кварталы»: детерминированный псевдослучай по (i, j),
+        //    три света города — циан, фиолет, янтарь.
+        val cols = (w / cell).toInt() + 1
+        val rows = (h / cell).toInt() + 1
+        for (j in 0 until rows) {
+            for (i in 0 until cols) {
+                val hash = (i * 73856093) xor (j * 19349663)
+                val v = (hash ushr 4) and 0xFF
+                if (v < 14) { // ~5% клеток подсвечены
+                    val tint = when (v % 3) {
+                        0 -> CityFogColors.Cyan400
+                        1 -> CityFogColors.Violet400
+                        else -> CityFogColors.Amber400
+                    }
+                    val a = 0.06f + (v % 5) * 0.016f
+                    drawRect(
+                        color = tint.copy(alpha = a),
+                        topLeft = Offset(i * cell + 1f, j * cell + 1f),
+                        size = androidx.compose.ui.geometry.Size(cell - 2f, cell - 2f)
+                    )
+                }
+            }
+        }
+
+        // 3. Сканлайн: мягкая полоса света, проходящая по сетке сверху вниз.
+        val scanY = scan * h
+        drawRect(
+            brush = Brush.verticalGradient(
+                listOf(
+                    Color.Transparent,
+                    CityFogColors.Cyan400.copy(alpha = 0.07f),
+                    CityFogColors.Cyan300.copy(alpha = 0.10f),
+                    CityFogColors.Cyan400.copy(alpha = 0.07f),
+                    Color.Transparent
+                ),
+                startY = scanY - 140f,
+                endY = scanY + 140f
             ),
-            radius = w * 0.85f, center = c1
+            topLeft = Offset(0f, scanY - 140f),
+            size = androidx.compose.ui.geometry.Size(w, 280f)
         )
-        // Циановое свечение — правый край, середина.
-        val c2 = Offset(w * (1.05f - 0.2f * drift), h * (0.45f - 0.1f * drift))
+
+        // 4. Аврора сверху: одно компактное фиолетовое свечение за заголовком.
+        val c1 = Offset(w * 0.25f, -h * 0.05f)
         drawCircle(
             brush = Brush.radialGradient(
-                listOf(CityFogColors.Cyan400.copy(alpha = 0.14f), Color.Transparent),
-                center = c2, radius = w * 0.75f
+                listOf(
+                    CityFogColors.Violet500.copy(alpha = 0.20f),
+                    CityFogColors.Violet500.copy(alpha = 0.07f),
+                    Color.Transparent
+                ),
+                center = c1, radius = w * 0.6f
             ),
-            radius = w * 0.75f, center = c2
-        )
-        // Тёплый натриевый фонарь — снизу слева, едва заметный.
-        val c3 = Offset(w * (0.2f + 0.1f * drift), h * 0.95f)
-        drawCircle(
-            brush = Brush.radialGradient(
-                listOf(CityFogColors.Amber400.copy(alpha = 0.08f), Color.Transparent),
-                center = c3, radius = w * 0.7f
-            ),
-            radius = w * 0.7f, center = c3
+            radius = w * 0.6f, center = c1
         )
     }
 }

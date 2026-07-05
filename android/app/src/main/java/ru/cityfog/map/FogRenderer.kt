@@ -50,6 +50,9 @@ class FogRenderer(style: Style) {
     private val freshFill = FillLayer(FRESH_FILL, FRESH_SRC)
     private val edgeSource = GeoJsonSource(EDGE_SRC)
     private val edgeGlowLayer = LineLayer(EDGE_GLOW, EDGE_SRC)
+    private val edgeCoreLayer = LineLayer(EDGE_CORE, EDGE_SRC)
+    // Вдали кромка тоньше и мягче (контур светящихся «кварталов»), вблизи — полный неон.
+    @Volatile private var farRim = false
     private val flashSource = GeoJsonSource(FLASH_SRC)
     private val flashFill = FillLayer(FLASH_FILL, FLASH_SRC)
     private val heatSource = GeoJsonSource(HEAT_SRC)
@@ -122,16 +125,15 @@ class FogRenderer(style: Style) {
         )
         style.addLayer(edgeGlowLayer)
         // Яркое ядро линии поверх свечения.
-        style.addLayer(
-            LineLayer(EDGE_CORE, EDGE_SRC).withProperties(
-                PropertyFactory.lineColor(CORE_COLOR),
-                PropertyFactory.lineWidth(1.8f),
-                PropertyFactory.lineOpacity(0.95f),
-                PropertyFactory.lineBlur(0.5f),
-                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
-            )
+        edgeCoreLayer.setProperties(
+            PropertyFactory.lineColor(CORE_COLOR),
+            PropertyFactory.lineWidth(1.8f),
+            PropertyFactory.lineOpacity(0.95f),
+            PropertyFactory.lineBlur(0.5f),
+            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
         )
+        style.addLayer(edgeCoreLayer)
 
         // «Вспышка» новой клетки: почти белый квадрат, вспыхивает и плавно тает.
         flashFill.setProperties(
@@ -221,8 +223,12 @@ class FogRenderer(style: Style) {
         fogLayer.setProperties(PropertyFactory.fillOpacity(op.toFloat()))
         // Свечение «захвата» ярче издалека (чтобы освоенное читалось поверх тёмного
         // полога), мягче вблизи (там и так раскрыта карта сквозь дыры).
-        baseClaimedOp = (0.34 - (z - 11.0) / 5.0 * (0.34 - 0.16)).coerceIn(0.16, 0.34).toFloat()
+        baseClaimedOp = (0.46 - (z - 11.0) / 5.0 * (0.46 - 0.16)).coerceIn(0.16, 0.46).toFloat()
+        farRim = z < RIM_ZOOM
         applyBreath()
+        edgeCoreLayer.setProperties(
+            PropertyFactory.lineOpacity(if (farRim) 0f else 0.95f)
+        )
 
         // Внешнее кольцо тумана с запасом 60% — чтобы при панораме не отставало от края.
         val dLat = (ne.latitude - sw.latitude) * 0.6
@@ -277,13 +283,11 @@ class FogRenderer(style: Style) {
                 } else {
                     freshSource.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
                 }
-                if (z >= RIM_ZOOM) {
-                    edgeSource.setGeoJson(
-                        Feature.fromGeometry(MultiLineString.fromLngLats(boundary(all)))
-                    )
-                } else {
-                    edgeSource.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
-                }
+                // Кромка рисуется на всех зумах раскрытия: вдали — мягкий контур
+                // светящихся «кварталов», вблизи — полный неон с ярким ядром.
+                edgeSource.setGeoJson(
+                    Feature.fromGeometry(MultiLineString.fromLngLats(boundary(all)))
+                )
             } else {
                 clearRevealSources()
             }
@@ -309,10 +313,15 @@ class FogRenderer(style: Style) {
             claimedFill.setProperties(PropertyFactory.fillOpacity(baseClaimedOp * k))
             claimedGlow.setProperties(PropertyFactory.fillOpacity(baseClaimedOp * 0.8f * k))
             freshFill.setProperties(
-                PropertyFactory.fillOpacity((baseClaimedOp * 1.7f).coerceAtMost(0.5f) * k)
+                PropertyFactory.fillOpacity((baseClaimedOp * 2f).coerceAtMost(0.55f) * k)
             )
             edgeGlowLayer.setProperties(
-                PropertyFactory.lineOpacity(if (breatheHigh) 0.55f else 0.33f)
+                PropertyFactory.lineWidth(if (farRim) 4f else 9f),
+                PropertyFactory.lineBlur(if (farRim) 5f else 8f),
+                PropertyFactory.lineOpacity(
+                    if (breatheHigh) (if (farRim) 0.5f else 0.55f)
+                    else (if (farRim) 0.3f else 0.33f)
+                )
             )
         } catch (_: Exception) {
         }
@@ -441,7 +450,7 @@ class FogRenderer(style: Style) {
         private const val REVEAL_ZOOM = 10.0
         private const val HOLE_ZOOM = 13.0
         private const val RIM_ZOOM = 13.0
-        private const val FOG_COLOR = "#0A0E27"  // глубокая полночная синь
+        private const val FOG_COLOR = "#06091C"  // почти чёрный void, в тон фону приложения
         private const val GLOW_COLOR = "#22D3EE" // cyan-400 — засветка освоенной зоны
         private const val GLOW_DEEP = "#0EA5E9"  // sky-500 — синее «тело» свечения
         private const val CORE_COLOR = "#CFFAFE" // cyan-50 — яркое ядро контура

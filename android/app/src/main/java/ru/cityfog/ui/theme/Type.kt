@@ -11,13 +11,14 @@ import androidx.compose.ui.unit.sp
 import ru.cityfog.R
 
 /**
- * Типографика CityFog — «ночной сканер»:
+ * Типографика CityFog — «ночной сканер», три голоса:
  *  - Unbounded (широкий футуро-гротеск, кириллица) — заголовки экранов и hero-цифры.
  *    Это лицо приложения; используется дозированно: display/headline/titleLarge.
+ *  - Manrope — весь рабочий текст (title/body/label): современный гротеск с
+ *    кириллицей, чтобы нигде не проглядывал системный Roboto.
  *  - JetBrains Mono — вся «телеметрия»: проценты, метры, таймеры, счётчики клеток.
  *    Моноширинные цифры не прыгают при анимации и дают приборный характер.
- *  - Системный шрифт — рабочий текст (body/label): нейтральный и читабельный.
- * Оба шрифта — вариативные TTF из res/font, вес выбирается через FontVariation.
+ * Все три — вариативные TTF из res/font, вес выбирается через FontVariation.
  */
 
 @OptIn(ExperimentalTextApi::class)
@@ -30,6 +31,13 @@ private fun unbounded(weight: Int, fw: FontWeight) = Font(
 @OptIn(ExperimentalTextApi::class)
 private fun mono(weight: Int, fw: FontWeight) = Font(
     R.font.jetbrains_mono_wght,
+    weight = fw,
+    variationSettings = FontVariation.Settings(FontVariation.weight(weight))
+)
+
+@OptIn(ExperimentalTextApi::class)
+private fun manrope(weight: Int, fw: FontWeight) = Font(
+    R.font.manrope_wght,
     weight = fw,
     variationSettings = FontVariation.Settings(FontVariation.weight(weight))
 )
@@ -48,6 +56,15 @@ val MonoFamily = FontFamily(
     mono(500, FontWeight.Medium),
     mono(600, FontWeight.SemiBold),
     mono(700, FontWeight.Bold)
+)
+
+/** Текстовый шрифт — всё остальное. */
+val TextFamily = FontFamily(
+    manrope(400, FontWeight.Normal),
+    manrope(500, FontWeight.Medium),
+    manrope(600, FontWeight.SemiBold),
+    manrope(700, FontWeight.Bold),
+    manrope(800, FontWeight.ExtraBold)
 )
 
 private val TNUM = "tnum"
@@ -85,23 +102,23 @@ val Typography = Typography(
         fontSize = 17.sp, lineHeight = 24.sp, letterSpacing = 0.sp
     ),
     titleMedium = TextStyle(
-        fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold,
+        fontFamily = TextFamily, fontWeight = FontWeight.SemiBold,
         fontSize = 17.sp, lineHeight = 22.sp, letterSpacing = 0.sp
     ),
     titleSmall = TextStyle(
-        fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold,
+        fontFamily = TextFamily, fontWeight = FontWeight.SemiBold,
         fontSize = 15.sp, lineHeight = 20.sp, letterSpacing = 0.1.sp
     ),
     bodyLarge = TextStyle(
-        fontFamily = FontFamily.Default, fontWeight = FontWeight.Normal,
+        fontFamily = TextFamily, fontWeight = FontWeight.Normal,
         fontSize = 16.sp, lineHeight = 24.sp, letterSpacing = 0.1.sp
     ),
     bodyMedium = TextStyle(
-        fontFamily = FontFamily.Default, fontWeight = FontWeight.Normal,
+        fontFamily = TextFamily, fontWeight = FontWeight.Normal,
         fontSize = 14.sp, lineHeight = 20.sp, letterSpacing = 0.1.sp
     ),
     bodySmall = TextStyle(
-        fontFamily = FontFamily.Default, fontWeight = FontWeight.Normal,
+        fontFamily = TextFamily, fontWeight = FontWeight.Normal,
         fontSize = 13.sp, lineHeight = 18.sp, letterSpacing = 0.1.sp
     ),
     // Процент в кольце на карте и похожие плотные цифры — моно.
@@ -111,13 +128,13 @@ val Typography = Typography(
         fontFeatureSettings = TNUM
     ),
     labelMedium = TextStyle(
-        fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium,
+        fontFamily = TextFamily, fontWeight = FontWeight.Medium,
         fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.4.sp,
         fontFeatureSettings = TNUM
     ),
     // Надзаголовок-«eyebrow»: широкий разряд, под UPPERCASE.
     labelSmall = TextStyle(
-        fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold,
+        fontFamily = TextFamily, fontWeight = FontWeight.SemiBold,
         fontSize = 11.sp, lineHeight = 14.sp, letterSpacing = 1.4.sp
     )
 )
