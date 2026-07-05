@@ -41,8 +41,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.cityfog.data.VisitRepository
+import ru.cityfog.ui.theme.AuroraBackground
 import ru.cityfog.ui.theme.CityFogColors
 import ru.cityfog.ui.theme.CityFogTheme
+import ru.cityfog.ui.theme.glassPanel
 
 @Composable
 fun AchievementsScreen(modifier: Modifier = Modifier) {
@@ -51,36 +53,41 @@ fun AchievementsScreen(modifier: Modifier = Modifier) {
     val achievements = buildAchievements(progress, stats)
     val unlocked = achievements.count { it.unlocked }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp)
-            // Низ: с запасом под плавающий навбар (≈92dp), чтобы последняя награда не пряталась.
-            .padding(top = 12.dp, bottom = 108.dp)
     ) {
-        Text(
-            "Награды",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        Text(
-            "Цели и вехи исследования Казани",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
-        )
+        AuroraBackground(Modifier.fillMaxSize())
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                // Низ: с запасом под плавающий навбар (≈92dp), чтобы последняя награда не пряталась.
+                .padding(top = 12.dp, bottom = 108.dp)
+        ) {
+            Text(
+                "Награды",
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Text(
+                "Цели и вехи исследования Казани",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
+            )
 
-        SummaryCard(unlocked = unlocked, total = achievements.size)
-        Spacer(Modifier.height(20.dp))
+            SummaryCard(unlocked = unlocked, total = achievements.size)
+            Spacer(Modifier.height(20.dp))
 
-        achievements.forEach { a ->
-            AchievementCard(a)
-            Spacer(Modifier.height(12.dp))
+            achievements.forEach { a ->
+                AchievementCard(a)
+                Spacer(Modifier.height(12.dp))
+            }
         }
     }
 }
@@ -88,13 +95,10 @@ fun AchievementsScreen(modifier: Modifier = Modifier) {
 @Composable
 private fun SummaryCard(unlocked: Int, total: Int) {
     val fraction = if (total > 0) unlocked.toFloat() / total else 0f
-    Card(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, CityFogColors.Cyan400.copy(alpha = 0.18f), RoundedCornerShape(28.dp)),
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = CityFogColors.Navy800),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+            .glassPanel(28.dp)
     ) {
         Row(
             modifier = Modifier.padding(24.dp),

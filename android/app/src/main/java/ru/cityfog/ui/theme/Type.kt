@@ -1,53 +1,88 @@
 package ru.cityfog.ui.theme
 
 import androidx.compose.material3.Typography
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import ru.cityfog.R
 
 /**
- * Типографика CityFog. Характер — «прибор-навигатор ночного города»:
- *  - крупные числа набраны плотно (отрицательный трекинг) и моноширинными цифрами
- *    (`tnum`), чтобы при анимации счётчика они не «прыгали»;
- *  - мелкие подписи-надзаголовки — наоборот, с широким разрядом (под uppercase),
- *    как метки на приборной панели.
- * Шрифт системный, но шкала весов/размеров/трекинга выстроена осознанно.
+ * Типографика CityFog — «ночной сканер»:
+ *  - Unbounded (широкий футуро-гротеск, кириллица) — заголовки экранов и hero-цифры.
+ *    Это лицо приложения; используется дозированно: display/headline/titleLarge.
+ *  - JetBrains Mono — вся «телеметрия»: проценты, метры, таймеры, счётчики клеток.
+ *    Моноширинные цифры не прыгают при анимации и дают приборный характер.
+ *  - Системный шрифт — рабочий текст (body/label): нейтральный и читабельный.
+ * Оба шрифта — вариативные TTF из res/font, вес выбирается через FontVariation.
  */
+
+@OptIn(ExperimentalTextApi::class)
+private fun unbounded(weight: Int, fw: FontWeight) = Font(
+    R.font.unbounded_wght,
+    weight = fw,
+    variationSettings = FontVariation.Settings(FontVariation.weight(weight))
+)
+
+@OptIn(ExperimentalTextApi::class)
+private fun mono(weight: Int, fw: FontWeight) = Font(
+    R.font.jetbrains_mono_wght,
+    weight = fw,
+    variationSettings = FontVariation.Settings(FontVariation.weight(weight))
+)
+
+/** Дисплейный шрифт — заголовки, hero-цифры, wordmark. */
+val DisplayFamily = FontFamily(
+    unbounded(500, FontWeight.Medium),
+    unbounded(600, FontWeight.SemiBold),
+    unbounded(700, FontWeight.Bold),
+    unbounded(800, FontWeight.ExtraBold)
+)
+
+/** Моноширинный шрифт — числа и телеметрия. */
+val MonoFamily = FontFamily(
+    mono(400, FontWeight.Normal),
+    mono(500, FontWeight.Medium),
+    mono(600, FontWeight.SemiBold),
+    mono(700, FontWeight.Bold)
+)
+
 private val TNUM = "tnum"
 
 val Typography = Typography(
+    // Display — Unbounded широкий: размеры меньше обычного, трекинг нулевой.
     displayLarge = TextStyle(
-        fontFamily = FontFamily.Default, fontWeight = FontWeight.ExtraBold,
-        fontSize = 56.sp, lineHeight = 58.sp, letterSpacing = (-2).sp,
-        fontFeatureSettings = TNUM
+        fontFamily = DisplayFamily, fontWeight = FontWeight.Bold,
+        fontSize = 40.sp, lineHeight = 46.sp, letterSpacing = (-0.5).sp
     ),
     displayMedium = TextStyle(
-        fontFamily = FontFamily.Default, fontWeight = FontWeight.ExtraBold,
-        fontSize = 44.sp, lineHeight = 48.sp, letterSpacing = (-1.5).sp,
-        fontFeatureSettings = TNUM
+        fontFamily = DisplayFamily, fontWeight = FontWeight.Bold,
+        fontSize = 32.sp, lineHeight = 38.sp, letterSpacing = (-0.5).sp
     ),
     displaySmall = TextStyle(
-        fontFamily = FontFamily.Default, fontWeight = FontWeight.Bold,
-        fontSize = 36.sp, lineHeight = 40.sp, letterSpacing = (-1).sp,
-        fontFeatureSettings = TNUM
+        fontFamily = DisplayFamily, fontWeight = FontWeight.SemiBold,
+        fontSize = 26.sp, lineHeight = 32.sp, letterSpacing = 0.sp
     ),
     headlineLarge = TextStyle(
-        fontFamily = FontFamily.Default, fontWeight = FontWeight.Bold,
-        fontSize = 30.sp, lineHeight = 36.sp, letterSpacing = (-0.5).sp
+        fontFamily = DisplayFamily, fontWeight = FontWeight.SemiBold,
+        fontSize = 25.sp, lineHeight = 32.sp, letterSpacing = 0.sp
     ),
     headlineMedium = TextStyle(
-        fontFamily = FontFamily.Default, fontWeight = FontWeight.Bold,
-        fontSize = 26.sp, lineHeight = 32.sp, letterSpacing = (-0.4).sp
+        fontFamily = DisplayFamily, fontWeight = FontWeight.SemiBold,
+        fontSize = 21.sp, lineHeight = 28.sp, letterSpacing = 0.sp
     ),
+    // Значения быстрых метрик — телеметрия: моноширинные цифры.
     headlineSmall = TextStyle(
-        fontFamily = FontFamily.Default, fontWeight = FontWeight.Bold,
-        fontSize = 22.sp, lineHeight = 28.sp, letterSpacing = (-0.2).sp,
+        fontFamily = MonoFamily, fontWeight = FontWeight.Bold,
+        fontSize = 20.sp, lineHeight = 26.sp, letterSpacing = (-0.5).sp,
         fontFeatureSettings = TNUM
     ),
     titleLarge = TextStyle(
-        fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold,
-        fontSize = 20.sp, lineHeight = 26.sp, letterSpacing = (-0.2).sp
+        fontFamily = DisplayFamily, fontWeight = FontWeight.Medium,
+        fontSize = 17.sp, lineHeight = 24.sp, letterSpacing = 0.sp
     ),
     titleMedium = TextStyle(
         fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold,
@@ -69,9 +104,10 @@ val Typography = Typography(
         fontFamily = FontFamily.Default, fontWeight = FontWeight.Normal,
         fontSize = 13.sp, lineHeight = 18.sp, letterSpacing = 0.1.sp
     ),
+    // Процент в кольце на карте и похожие плотные цифры — моно.
     labelLarge = TextStyle(
-        fontFamily = FontFamily.Default, fontWeight = FontWeight.SemiBold,
-        fontSize = 14.sp, lineHeight = 18.sp, letterSpacing = 0.3.sp,
+        fontFamily = MonoFamily, fontWeight = FontWeight.SemiBold,
+        fontSize = 14.sp, lineHeight = 18.sp, letterSpacing = 0.sp,
         fontFeatureSettings = TNUM
     ),
     labelMedium = TextStyle(

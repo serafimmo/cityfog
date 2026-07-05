@@ -37,6 +37,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import ru.cityfog.ui.theme.CityFogColors
+import ru.cityfog.ui.theme.glassPanel
 
 enum class Screen { Map, Stats, Achievements, Settings }
 
@@ -82,17 +83,13 @@ fun MainScreen(modifier: Modifier = Modifier) {
         }
 
         NavigationBar(
+            // Плавающий стеклянный док — та же поверхность, что у панелей на карте.
             modifier = Modifier
                 .align(androidx.compose.ui.Alignment.BottomCenter)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .border(
-                    1.dp,
-                    CityFogColors.Cyan400.copy(alpha = 0.10f),
-                    RoundedCornerShape(24.dp)
-                ),
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-            tonalElevation = 8.dp
+                .glassPanel(26.dp),
+            containerColor = androidx.compose.ui.graphics.Color.Transparent,
+            tonalElevation = 0.dp
         ) {
             screens.forEachIndexed { index, screen ->
                 val selectedItem = selected == index

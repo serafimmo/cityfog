@@ -61,8 +61,6 @@ import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -127,6 +125,8 @@ import ru.cityfog.tracking.LocationService
 import ru.cityfog.tracking.SessionTracker
 import ru.cityfog.tracking.TrackingState
 import ru.cityfog.ui.theme.CityFogColors
+import ru.cityfog.ui.theme.MonoFamily
+import ru.cityfog.ui.theme.glassPanel
 
 private val KAZAN = LatLng(55.7963, 49.1088)
 private const val START_ZOOM = 12.0
@@ -351,16 +351,7 @@ private fun GlobalProgressCard(
         animationSpec = tween(1000, easing = FastOutSlowInEasing),
         label = "global-pct"
     )
-    Card(
-        modifier = modifier.border(
-            1.dp, CityFogColors.Cyan400.copy(alpha = 0.12f), RoundedCornerShape(24.dp)
-        ),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
-        shape = RoundedCornerShape(24.dp)
-    ) {
+    Box(modifier = modifier.glassPanel(24.dp)) {
         Row(
             modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -384,7 +375,7 @@ private fun GlobalProgressCard(
                 Text(
                     if (loading) "загрузка карты…"
                     else "%.2f км²".format(visitedKm2),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleMedium.copy(fontFamily = MonoFamily),
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
                 )
@@ -404,7 +395,9 @@ private fun GlobalProgressCard(
                                 if (session.active)
                                     "запись · ${fmtDuration((nowTs - session.startTs).coerceAtLeast(0))}"
                                 else "идёт запись",
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontFamily = MonoFamily, letterSpacing = 0.5.sp
+                                ),
                                 color = REC_RED,
                                 fontWeight = FontWeight.Medium
                             )
@@ -418,12 +411,16 @@ private fun GlobalProgressCard(
                             ) {
                                 Text(
                                     fmtDistance(session.distanceM),
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontFamily = MonoFamily, letterSpacing = 0.5.sp
+                                    ),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
                                     "+$newCells ${cellsWord(newCells)}",
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontFamily = MonoFamily, letterSpacing = 0.5.sp
+                                    ),
                                     color = CYAN,
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -526,13 +523,10 @@ private fun DistrictsPanel(
     var expanded by rememberSaveable { mutableStateOf(false) }
     val districts = progress.districts.sortedByDescending { it.percent }
 
-    Card(
-        modifier = modifier.widthIn(max = 280.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
-        shape = RoundedCornerShape(22.dp)
+    Box(
+        modifier = modifier
+            .widthIn(max = 280.dp)
+            .glassPanel(22.dp)
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(
@@ -695,7 +689,7 @@ private fun WalkSummaryDialog(summary: WalkSummary, onDismiss: () -> Unit) {
             animationSpec = tween(200),
             label = "summary-alpha"
         )
-        Card(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .graphicsLayer {
@@ -703,10 +697,7 @@ private fun WalkSummaryDialog(summary: WalkSummary, onDismiss: () -> Unit) {
                     scaleY = scale
                     this.alpha = alpha
                 }
-                .border(1.dp, CYAN.copy(alpha = 0.25f), RoundedCornerShape(28.dp)),
-            shape = RoundedCornerShape(28.dp),
-            colors = CardDefaults.cardColors(containerColor = CityFogColors.Navy800),
-            elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
+                .glassPanel(28.dp)
         ) {
             Column(
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp),
@@ -791,8 +782,8 @@ private fun SummaryStat(
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             value,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.ExtraBold,
+            // Телеметрия — моно (headlineSmall в теме настроен на JetBrains Mono).
+            style = MaterialTheme.typography.headlineSmall,
             color = valueColor
         )
         Spacer(Modifier.height(2.dp))

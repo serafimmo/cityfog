@@ -2,9 +2,11 @@ package ru.cityfog.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Цветовая палитра CityFog — ночной город + бирюзовое свечение тумана.
+// Палитра CityFog — «ночной сканер»: void-фон и три света ночного города:
+// холодный LED (cyan), аврора (violet), натриевые фонари (amber).
 object CityFogColors {
-    // Основа — глубокая полночная синь.
+    // Основа — почти чёрный космос с синим подтоном.
+    val Void = Color(0xFF050914)
     val Navy900 = Color(0xFF0A0E27)
     val Navy800 = Color(0xFF111835)
     val Navy700 = Color(0xFF1A2342)
@@ -16,6 +18,11 @@ object CityFogColors {
     val Cyan200 = Color(0xFFA5F3FC)
     val Teal500 = Color(0xFF14B8A6)
     val Teal400 = Color(0xFF2DD4BF)
+
+    // Второй и третий свет города.
+    val Violet500 = Color(0xFF8B5CF6)
+    val Violet400 = Color(0xFFA78BFA)
+    val Amber400 = Color(0xFFFBBF24)
 
     // Состояния.
     val Recording = Color(0xFFEF4444)

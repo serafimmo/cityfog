@@ -57,7 +57,9 @@ import kotlinx.coroutines.withContext
 import ru.cityfog.BuildConfig
 import ru.cityfog.data.TrackRepository
 import ru.cityfog.data.VisitRepository
+import ru.cityfog.ui.theme.AuroraBackground
 import ru.cityfog.ui.theme.CityFogColors
+import ru.cityfog.ui.theme.glassPanel
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -72,21 +74,25 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     var showClearDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp)
-            // Низ: с запасом под плавающий навбар (≈92dp).
-            .padding(top = 12.dp, bottom = 108.dp)
     ) {
+        AuroraBackground(Modifier.fillMaxSize())
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                // Низ: с запасом под плавающий навбар (≈92dp).
+                .padding(top = 12.dp, bottom = 108.dp)
+        ) {
         Text(
             "Настройки",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold
+            style = MaterialTheme.typography.headlineMedium
         )
         Text(
             "Данные, экспорт и справка",
@@ -147,6 +153,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 onClick = { /* Можно открыть onboarding повторно */ }
             )
         }
+        }
     }
 
     if (showClearDialog) {
@@ -189,17 +196,18 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
 @Composable
 private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
     Column {
+        // Eyebrow-заголовок группы: КАПС с широким разрядом (labelLarge теперь моно —
+        // буква «О» там путается с нулём).
         Text(
-            title,
-            style = MaterialTheme.typography.labelLarge,
+            title.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)
         )
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .glassPanel(24.dp)
         ) {
             Column(modifier = Modifier.padding(vertical = 8.dp)) {
                 content()

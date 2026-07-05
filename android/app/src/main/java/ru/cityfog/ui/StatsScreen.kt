@@ -29,8 +29,6 @@ import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Today
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -54,8 +52,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import ru.cityfog.data.TrackRepository
 import ru.cityfog.data.VisitRepository
+import ru.cityfog.ui.theme.AuroraBackground
 import ru.cityfog.ui.theme.CityFogColors
 import ru.cityfog.ui.theme.CityFogTheme
+import ru.cityfog.ui.theme.MonoFamily
+import ru.cityfog.ui.theme.glassPanel
 import java.util.concurrent.TimeUnit
 
 @Composable
@@ -72,21 +73,26 @@ fun StatsScreen(modifier: Modifier = Modifier) {
         }
     }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp)
-            // Низ: с запасом под плавающий навбар (≈92dp), чтобы последний район не прятался.
-            .padding(top = 12.dp, bottom = 108.dp)
     ) {
+        // Аврора за стеклом: медленно дрейфующие орбы света.
+        AuroraBackground(Modifier.fillMaxSize())
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                // Низ: с запасом под плавающий навбар (≈92dp), чтобы последний район не прятался.
+                .padding(top = 12.dp, bottom = 108.dp)
+        ) {
         Text(
             "Статистика",
             style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground
         )
         Text(
@@ -150,6 +156,7 @@ fun StatsScreen(modifier: Modifier = Modifier) {
                 label = "Стрик",
                 value = "${stats.streakDays}",
                 unit = "дней подряд",
+                iconTint = CityFogColors.Amber400,
                 modifier = Modifier.weight(1f)
             )
             QuickStatCard(
@@ -186,51 +193,54 @@ fun StatsScreen(modifier: Modifier = Modifier) {
             DistrictBar(d)
             Spacer(Modifier.height(10.dp))
         }
+        }
     }
 }
 
 @Composable
 private fun HeroStatCard(percent: Float, visited: Int, total: Int) {
-    Card(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, CityFogColors.Cyan400.copy(alpha = 0.18f), RoundedCornerShape(28.dp)),
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = CityFogColors.Navy800),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+            .glassPanel(28.dp)
+            .padding(24.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    Brush.linearGradient(
-                        listOf(CityFogColors.Navy800, CityFogColors.Navy700)
+        Column {
+            Text(
+                "КАЗАНЬ ИССЛЕДОВАНА",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(10.dp))
+            // Сигнатура: hero-процент в Unbounded с переливом cyan → violet.
+            AnimatedStatNumber(
+                value = percent,
+                style = MaterialTheme.typography.displayLarge,
+                fontWeight = FontWeight.Bold,
+                color = CityFogColors.Cyan400,
+                format = { fmtPct(it) },
+                brush = Brush.linearGradient(
+                    listOf(
+                        CityFogColors.Cyan300,
+                        CityFogColors.Cyan400,
+                        CityFogColors.Violet400
                     )
                 )
-                .padding(24.dp)
-        ) {
+            )
+            Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                AnimatedStatNumber(
-                    value = percent,
-                    style = MaterialTheme.typography.displayLarge,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = CityFogColors.Cyan400,
-                    format = { fmtPct(it) }
+                Text(
+                    "$visited / $total",
+                    style = MaterialTheme.typography.titleMedium.copy(fontFamily = MonoFamily),
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onBackground
                 )
-                Spacer(Modifier.width(20.dp))
-                Column {
-                    Text(
-                        "$visited из $total",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Text(
-                        "клеток открыто",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "клеток открыто",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
@@ -240,11 +250,10 @@ private fun HeroStatCard(percent: Float, visited: Int, total: Int) {
 private fun ActivityChart(daily: IntArray) {
     val max = (daily.maxOrNull() ?: 0)
     val sum = daily.sum()
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassPanel(24.dp)
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Row(
@@ -304,7 +313,8 @@ private fun ActivityChart(daily: IntArray) {
                         )
                         // Высота столбика — доля от максимума; пустой день — едва заметный «огрызок».
                         val shown = if (count == 0) 0.02f else animated.coerceAtLeast(0.06f)
-                        val barColor = if (isToday) CityFogColors.Teal400 else CityFogColors.Cyan400
+                        // «Сегодня» — тёплый натриевый фонарь среди холодных LED.
+                        val barColor = if (isToday) CityFogColors.Amber400 else CityFogColors.Cyan400
                         Box(
                             modifier = Modifier
                                 .weight(1f)
@@ -347,14 +357,10 @@ private fun QuickStatCard(
     label: String,
     value: String,
     unit: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    iconTint: androidx.compose.ui.graphics.Color = CityFogColors.Cyan400
 ) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-    ) {
+    Box(modifier = modifier.glassPanel(20.dp)) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -369,7 +375,7 @@ private fun QuickStatCard(
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = CityFogColors.Cyan400,
+                    tint = iconTint,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -401,11 +407,10 @@ private fun QuickStatCard(
 @Composable
 private fun TopDistrictCard(stats: VisitRepository.Stats) {
     val color = districtColor(stats.topDistrictId)
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassPanel(24.dp)
     ) {
         Row(
             modifier = Modifier
@@ -500,7 +505,8 @@ private fun AnimatedStatNumber(
     style: androidx.compose.ui.text.TextStyle,
     fontWeight: FontWeight,
     color: androidx.compose.ui.graphics.Color,
-    format: (Float) -> String
+    format: (Float) -> String,
+    brush: Brush? = null
 ) {
     val animated by animateFloatAsState(
         targetValue = value,
@@ -508,9 +514,10 @@ private fun AnimatedStatNumber(
     )
     Text(
         format(animated),
-        style = style,
+        // brush красит глифы градиентом; при нём цвет не задаём (иначе перекроет).
+        style = if (brush != null) style.copy(brush = brush) else style,
         fontWeight = fontWeight,
-        color = color
+        color = if (brush != null) androidx.compose.ui.graphics.Color.Unspecified else color
     )
 }
 

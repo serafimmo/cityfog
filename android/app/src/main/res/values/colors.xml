@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="navy_900">#FF0A0E27</color>
+    <!-- Совпадает с CityFogColors.Void: системный сплэш бесшовно переходит в приложение. -->
+    <color name="navy_900">#FF050914</color>
     <color name="navy_800">#FF111835</color>
     <color name="cyan_400">#FF22D3EE</color>
     <color name="teal_500">#FF14B8A6</color>
