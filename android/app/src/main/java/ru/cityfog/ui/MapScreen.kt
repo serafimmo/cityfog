@@ -372,16 +372,24 @@ private fun GlobalProgressCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(2.dp))
+                // Сигнатура и на карте: км² в Unbounded с переливом cyan → violet.
                 Text(
                     if (loading) "загрузка карты…"
                     else "%.2f км²".format(visitedKm2),
-                    style = MaterialTheme.typography.titleMedium.copy(fontFamily = MonoFamily),
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
+                    style = MaterialTheme.typography.displaySmall.copy(
+                        brush = Brush.linearGradient(
+                            listOf(
+                                CityFogColors.Cyan300,
+                                CityFogColors.Cyan400,
+                                CityFogColors.Violet400
+                            )
+                        )
+                    ),
+                    fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    if (loading) "" else "из %.0f км²".format(totalKm2),
-                    style = MaterialTheme.typography.bodySmall,
+                    if (loading) "" else "из %.0f км² города".format(totalKm2),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = MonoFamily),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 AnimatedVisibility(visible = tracking) {
