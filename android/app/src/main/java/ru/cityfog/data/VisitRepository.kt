@@ -67,6 +67,10 @@ object VisitRepository {
     /** Бамп при каждой новой клетке — сигнал для перерисовки тумана. */
     val revision: StateFlow<Long> = _revision.asStateFlow()
 
+    private val _lastOpened = MutableStateFlow(0L)
+    /** cellId последней открытой клетки — для «вспышки» на карте. */
+    val lastOpened: StateFlow<Long> = _lastOpened.asStateFlow()
+
     /** Идемпотентно: грузит маску и visited.bin, считает прогресс и статистику. */
     fun init(context: Context) {
         if (initialized) return
@@ -111,6 +115,7 @@ object VisitRepository {
             emitProgress()
             emitStats()
             _revision.value = _revision.value + 1
+            _lastOpened.value = id
         }
         return isNew
     }
@@ -223,6 +228,23 @@ object VisitRepository {
                 val x = GridMapper.unpackX(id)
                 val y = GridMapper.unpackY(id)
                 if (x in minX..maxX && y in minY..maxY) out.add(id)
+            }
+        }
+        return out
+    }
+
+    /** Пары [cellId, firstVisitTs] внутри прямоугольника — для отрисовки со «свежестью». */
+    fun cellsInBoundsWithTs(west: Double, south: Double, east: Double, north: Double): List<LongArray> {
+        val minX = GridMapper.cellX(west)
+        val maxX = GridMapper.cellX(east)
+        val minY = GridMapper.cellY(south)
+        val maxY = GridMapper.cellY(north)
+        val out = ArrayList<LongArray>()
+        synchronized(lock) {
+            for ((id, ts) in visited) {
+                val x = GridMapper.unpackX(id)
+                val y = GridMapper.unpackY(id)
+                if (x in minX..maxX && y in minY..maxY) out.add(longArrayOf(id, ts))
             }
         }
         return out

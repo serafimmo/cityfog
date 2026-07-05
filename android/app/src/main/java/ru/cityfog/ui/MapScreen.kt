@@ -11,16 +11,25 @@ import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -43,6 +52,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PlayArrow
@@ -74,10 +84,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -192,6 +207,7 @@ fun MapScreen(modifier: Modifier = Modifier) {
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+            rendererRef.value?.release()
             mapView.onStop()
             mapView.onDestroy()
         }
@@ -206,6 +222,12 @@ fun MapScreen(modifier: Modifier = Modifier) {
         if (revision > 0) {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         }
+    }
+
+    // Вспышка на месте только что открытой клетки.
+    val lastOpened by VisitRepository.lastOpened.collectAsStateWithLifecycle()
+    LaunchedEffect(lastOpened) {
+        if (lastOpened != 0L) rendererRef.value?.flashCell(lastOpened)
     }
 
     val progress by VisitRepository.progress.collectAsStateWithLifecycle()
@@ -470,10 +492,26 @@ private fun ProgressRing(
                 style = Stroke(width = sw, cap = StrokeCap.Round)
             )
             val frac = (percent / 100f).coerceIn(0f, 1f)
-            drawArc(
-                color = TEAL_BRIGHT, startAngle = -90f, sweepAngle = 360f * frac, useCenter = false,
-                style = Stroke(width = sw, cap = StrokeCap.Round)
+            // Дуга с переливом teal → cyan; рисуем в повёрнутой системе, чтобы
+            // sweep-градиент начинался с 12 часов вместе с дугой.
+            rotate(-90f) {
+                drawArc(
+                    brush = Brush.sweepGradient(
+                        0f to TEAL_BRIGHT, 0.55f to CYAN, 1f to TEAL_BRIGHT
+                    ),
+                    startAngle = 0f, sweepAngle = 360f * frac, useCenter = false,
+                    style = Stroke(width = sw, cap = StrokeCap.Round)
+                )
+            }
+            // «Комета» на конце дуги: прогресс виден даже при долях процента.
+            val ang = Math.toRadians(-90.0 + 360.0 * frac)
+            val r = (this.size.minDimension - sw) / 2f
+            val head = Offset(
+                center.x + (r * kotlin.math.cos(ang)).toFloat(),
+                center.y + (r * kotlin.math.sin(ang)).toFloat()
             )
+            drawCircle(CYAN.copy(alpha = 0.35f), radius = sw * 1.35f, center = head)
+            drawCircle(Color(0xFFCFFAFE), radius = sw * 0.62f, center = head)
         }
         content()
     }
@@ -509,13 +547,35 @@ private fun DistrictsPanel(
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold
                 )
-                Text(
-                    if (expanded) "⌄" else "⌃",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                // Шеврон в кружке; при раскрытии пружинно переворачивается вниз.
+                val chevron by animateFloatAsState(
+                    targetValue = if (expanded) 180f else 0f,
+                    animationSpec = spring(dampingRatio = 0.6f, stiffness = 380f),
+                    label = "districts-chevron"
                 )
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(CityFogColors.Navy700),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ExpandLess,
+                        contentDescription = if (expanded) "Свернуть" else "Развернуть",
+                        tint = CYAN,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .rotate(chevron)
+                    )
+                }
             }
-            AnimatedVisibility(visible = expanded) {
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(tween(280, easing = FastOutSlowInEasing)) +
+                    fadeIn(tween(280)),
+                exit = shrinkVertically(tween(200)) + fadeOut(tween(160))
+            ) {
                 Column(modifier = Modifier.padding(top = 8.dp)) {
                     districts.forEach { d ->
                         DistrictRow(d)
@@ -558,8 +618,14 @@ private fun DistrictRow(d: VisitRepository.DistrictProgress) {
             )
         }
         Spacer(Modifier.height(4.dp))
+        // Полоска «доезжает» до значения при раскрытии панели.
+        val animPct by animateFloatAsState(
+            targetValue = (d.percent / 100f).coerceIn(0f, 1f),
+            animationSpec = tween(800, easing = FastOutSlowInEasing),
+            label = "district-bar"
+        )
         LinearProgressIndicator(
-            progress = { (d.percent / 100f).coerceIn(0f, 1f) },
+            progress = { animPct },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(5.dp)
@@ -616,9 +682,27 @@ private data class WalkSummary(
 @Composable
 private fun WalkSummaryDialog(summary: WalkSummary, onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
+        // Пружинное появление: карточка «выпрыгивает» с лёгким перелётом.
+        var shown by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { shown = true }
+        val scale by animateFloatAsState(
+            targetValue = if (shown) 1f else 0.86f,
+            animationSpec = spring(dampingRatio = 0.55f, stiffness = 420f),
+            label = "summary-scale"
+        )
+        val alpha by animateFloatAsState(
+            targetValue = if (shown) 1f else 0f,
+            animationSpec = tween(200),
+            label = "summary-alpha"
+        )
         Card(
             modifier = Modifier
                 .fillMaxWidth()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    this.alpha = alpha
+                }
                 .border(1.dp, CYAN.copy(alpha = 0.25f), RoundedCornerShape(28.dp)),
             shape = RoundedCornerShape(28.dp),
             colors = CardDefaults.cardColors(containerColor = CityFogColors.Navy800),
@@ -822,22 +906,31 @@ private fun Controls(
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        SmallFloatingActionButton(
-            onClick = {
-                val on = !heatmapOn.value
-                heatmapOn.value = on
-                rendererRef.value?.setHeatmap(on)
-            },
-            containerColor = if (heatmapOn.value) CYAN
+        // Тепловая карта: во включённом состоянии кнопка «дышит» пульсирующим ореолом.
+        val heatContainer by animateColorAsState(
+            targetValue = if (heatmapOn.value) CYAN
             else MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-            contentColor = if (heatmapOn.value) CityFogColors.Navy900 else CYAN,
-            shape = CircleShape
-        ) {
-            Icon(
-                imageVector = Icons.Default.Whatshot,
-                contentDescription = "Тепловая карта",
-                modifier = Modifier.size(22.dp)
-            )
+            animationSpec = tween(300),
+            label = "heat-color"
+        )
+        Box(contentAlignment = Alignment.Center) {
+            if (heatmapOn.value) PulseHalo(color = CYAN, size = 40.dp)
+            SmallFloatingActionButton(
+                onClick = {
+                    val on = !heatmapOn.value
+                    heatmapOn.value = on
+                    rendererRef.value?.setHeatmap(on)
+                },
+                containerColor = heatContainer,
+                contentColor = if (heatmapOn.value) CityFogColors.Navy900 else CYAN,
+                shape = CircleShape
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Whatshot,
+                    contentDescription = "Тепловая карта",
+                    modifier = Modifier.size(22.dp)
+                )
+            }
         }
         SmallFloatingActionButton(
             onClick = { startFollowing(context, mapRef.value, styleRef.value, locationOn) },
@@ -881,20 +974,42 @@ private fun Controls(
                     }
                 }
             },
-            containerColor = if (tracking) REC_RED else TEAL_BRIGHT,
+            containerColor = animateColorAsState(
+                targetValue = if (tracking) REC_RED else TEAL_BRIGHT,
+                animationSpec = tween(350),
+                label = "fab-color"
+            ).value,
             contentColor = Color.White,
             shape = CircleShape,
             icon = {
-                Icon(
-                    imageVector = if (tracking) Icons.Default.Stop else Icons.Default.PlayArrow,
-                    contentDescription = if (tracking) "Стоп" else "Старт"
-                )
+                // Иконка сменяется с лёгким «схлопыванием» — старт/стоп ощущается щелчком.
+                AnimatedContent(
+                    targetState = tracking,
+                    transitionSpec = {
+                        (scaleIn(tween(220)) + fadeIn(tween(220)))
+                            .togetherWith(scaleOut(tween(140)) + fadeOut(tween(140)))
+                    },
+                    label = "fab-icon"
+                ) { t ->
+                    Icon(
+                        imageVector = if (t) Icons.Default.Stop else Icons.Default.PlayArrow,
+                        contentDescription = if (t) "Стоп" else "Старт"
+                    )
+                }
             },
             text = {
-                Text(
-                    if (tracking) "Стоп" else "Старт",
-                    fontWeight = FontWeight.SemiBold
-                )
+                AnimatedContent(
+                    targetState = tracking,
+                    transitionSpec = {
+                        (fadeIn(tween(220))).togetherWith(fadeOut(tween(140)))
+                    },
+                    label = "fab-text"
+                ) { t ->
+                    Text(
+                        if (t) "Стоп" else "Старт",
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         )
     }
@@ -925,6 +1040,37 @@ private fun Controls(
             }
         )
     }
+}
+
+/** Пульсирующий ореол вокруг активной круглой кнопки (расширяется и тает). */
+@Composable
+private fun PulseHalo(color: Color, size: Dp) {
+    val t = rememberInfiniteTransition(label = "halo")
+    val scale by t.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.7f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "halo-scale"
+    )
+    val alpha by t.animateFloat(
+        initialValue = 0.45f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "halo-alpha"
+    )
+    Box(
+        Modifier
+            .size(size)
+            .scale(scale)
+            .clip(CircleShape)
+            .background(color.copy(alpha = alpha))
+    )
 }
 
 @SuppressLint("MissingPermission")

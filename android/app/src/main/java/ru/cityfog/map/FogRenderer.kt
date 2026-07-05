@@ -1,5 +1,7 @@
 package ru.cityfog.map
 
+import android.os.Handler
+import android.os.Looper
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
@@ -8,6 +10,7 @@ import org.maplibre.android.style.layers.HeatmapLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.TransitionOptions
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
@@ -29,6 +32,12 @@ import ru.cityfog.grid.GridMapper
  * LOD: дыры и контур считаются только на уличном зуме (>= MIN_ZOOM); на городском остаётся
  * ровный туман (клетки 12 м всё равно мельче пикселя). Прозрачность тумана растёт с зумом,
  * чтобы вдали картой было удобно ориентироваться.
+ *
+ * Живость:
+ *  - «дыхание» — свечение освоенной зоны медленно пульсирует. Реализовано через нативные
+ *    property-transitions MapLibre: два setProperties за цикл, интерполирует GPU — дёшево;
+ *  - «свежий след» — клетки, открытые за последние 24 ч, светятся ярче остальных;
+ *  - «вспышка» — новая клетка ярко вспыхивает и плавно гаснет ([flashCell]).
  */
 class FogRenderer(style: Style) {
 
@@ -37,15 +46,36 @@ class FogRenderer(style: Style) {
     private val claimedSource = GeoJsonSource(CLAIMED_SRC)
     private val claimedGlow = FillLayer(CLAIMED_GLOW, CLAIMED_SRC)
     private val claimedFill = FillLayer(CLAIMED_FILL, CLAIMED_SRC)
+    private val freshSource = GeoJsonSource(FRESH_SRC)
+    private val freshFill = FillLayer(FRESH_FILL, FRESH_SRC)
     private val edgeSource = GeoJsonSource(EDGE_SRC)
+    private val edgeGlowLayer = LineLayer(EDGE_GLOW, EDGE_SRC)
+    private val flashSource = GeoJsonSource(FLASH_SRC)
+    private val flashFill = FillLayer(FLASH_FILL, FLASH_SRC)
     private val heatSource = GeoJsonSource(HEAT_SRC)
     private val heatLayer = HeatmapLayer(HEAT_LAYER, HEAT_SRC)
     private var heatOn = false
 
+    // Дыхание свечения: фаза меняется по таймеру, GPU плавно доводит прозрачность сам.
+    private val handler = Handler(Looper.getMainLooper())
+    private var breatheHigh = true
+    private var baseClaimedOp = 0.26f
+    private var released = false
+    private val breathe = object : Runnable {
+        override fun run() {
+            if (released) return
+            breatheHigh = !breatheHigh
+            applyBreath()
+            handler.postDelayed(this, BREATH_MS)
+        }
+    }
+
     init {
         style.addSource(fogSource)
         style.addSource(claimedSource)
+        style.addSource(freshSource)
         style.addSource(edgeSource)
+        style.addSource(flashSource)
         style.addSource(heatSource)
 
         // Прозрачность задаём плавно из кода в refresh() (надёжнее зум-выражения стиля,
@@ -72,18 +102,25 @@ class FogRenderer(style: Style) {
             PropertyFactory.fillOpacity(0.26f)
         )
         style.addLayer(claimedFill)
+        //  3) «Свежий след»: клетки последних 24 часов светятся заметно ярче —
+        //     видно, где гулял сегодня, поверх старой освоенной территории.
+        freshFill.setProperties(
+            PropertyFactory.fillColor(FRESH_COLOR),
+            PropertyFactory.fillAntialias(true),
+            PropertyFactory.fillOpacity(0.4f)
+        )
+        style.addLayer(freshFill)
 
         // Внешнее размытое свечение кромки — широкое и мягкое, как неоновый ореол.
-        style.addLayer(
-            LineLayer(EDGE_GLOW, EDGE_SRC).withProperties(
-                PropertyFactory.lineColor(GLOW_COLOR),
-                PropertyFactory.lineWidth(9f),
-                PropertyFactory.lineOpacity(0.5f),
-                PropertyFactory.lineBlur(8f),
-                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
-            )
+        edgeGlowLayer.setProperties(
+            PropertyFactory.lineColor(GLOW_COLOR),
+            PropertyFactory.lineWidth(9f),
+            PropertyFactory.lineOpacity(0.5f),
+            PropertyFactory.lineBlur(8f),
+            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
         )
+        style.addLayer(edgeGlowLayer)
         // Яркое ядро линии поверх свечения.
         style.addLayer(
             LineLayer(EDGE_CORE, EDGE_SRC).withProperties(
@@ -95,6 +132,23 @@ class FogRenderer(style: Style) {
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
             )
         )
+
+        // «Вспышка» новой клетки: почти белый квадрат, вспыхивает и плавно тает.
+        flashFill.setProperties(
+            PropertyFactory.fillColor(FLASH_COLOR),
+            PropertyFactory.fillAntialias(true),
+            PropertyFactory.fillOpacity(0f)
+        )
+        style.addLayer(flashFill)
+
+        // Медленные плавные переходы прозрачности — «дыхание» интерполирует GPU.
+        val breath = TransitionOptions.fromTransitionOptions(BREATH_MS, 0)
+        claimedFill.fillOpacityTransition = breath
+        claimedGlow.fillOpacityTransition = breath
+        freshFill.fillOpacityTransition = breath
+        edgeGlowLayer.lineOpacityTransition = breath
+        fogLayer.fillOpacityTransition = TransitionOptions.fromTransitionOptions(600, 0)
+        handler.postDelayed(breathe, BREATH_MS)
 
         // Тепловая карта (по умолчанию выключена): «где я бывал чаще/плотнее всего».
         // Плотность открытых клеток превращается в свечение от синего к бело-горячему.
@@ -167,9 +221,8 @@ class FogRenderer(style: Style) {
         fogLayer.setProperties(PropertyFactory.fillOpacity(op.toFloat()))
         // Свечение «захвата» ярче издалека (чтобы освоенное читалось поверх тёмного
         // полога), мягче вблизи (там и так раскрыта карта сквозь дыры).
-        val glowOp = (0.34 - (z - 11.0) / 5.0 * (0.34 - 0.16)).coerceIn(0.16, 0.34)
-        claimedFill.setProperties(PropertyFactory.fillOpacity(glowOp.toFloat()))
-        claimedGlow.setProperties(PropertyFactory.fillOpacity((glowOp * 0.8).toFloat()))
+        baseClaimedOp = (0.34 - (z - 11.0) / 5.0 * (0.34 - 0.16)).coerceIn(0.16, 0.34).toFloat()
+        applyBreath()
 
         // Внешнее кольцо тумана с запасом 60% — чтобы при панораме не отставало от края.
         val dLat = (ne.latitude - sw.latitude) * 0.6
@@ -186,15 +239,22 @@ class FogRenderer(style: Style) {
             // Берём клетки чуть шире экрана (15%), чтобы контур у кромки экрана не «обрезался».
             val mLat = (ne.latitude - sw.latitude) * 0.15
             val mLon = (ne.longitude - sw.longitude) * 0.15
-            val ids = VisitRepository.cellsInBounds(
+            val pairs = VisitRepository.cellsInBoundsWithTs(
                 sw.longitude - mLon, sw.latitude - mLat,
                 ne.longitude + mLon, ne.latitude + mLat
             )
-            if (ids.isNotEmpty()) {
+            if (pairs.isNotEmpty()) {
+                val freshCutoff = System.currentTimeMillis() - FRESH_MS
+                val all = HashSet<Long>(pairs.size * 2)
+                val fresh = HashSet<Long>()
+                for (p in pairs) {
+                    all.add(p[0])
+                    if (p[1] >= freshCutoff) fresh.add(p[0])
+                }
                 val cutHoles = z >= HOLE_ZOOM
                 // Объединённые прямоугольники: один проход на свечение «захвата» и дыры.
                 val claimed = ArrayList<Feature>()
-                for (r in mergeRects(HashSet(ids))) {
+                for (r in mergeRects(HashSet(all))) {
                     val ring = rectRing(
                         GridMapper.westLon(r[0]), GridMapper.southLat(r[1]),
                         GridMapper.eastLon(r[2]), GridMapper.northLat(r[3])
@@ -203,25 +263,101 @@ class FogRenderer(style: Style) {
                     if (cutHoles) rings.add(ring)  // вблизи прорезаем дыру — видно дневную карту
                 }
                 claimedSource.setGeoJson(FeatureCollection.fromFeatures(claimed))
+                // Свежий след последних суток — отдельным ярким слоем поверх.
+                if (fresh.isNotEmpty()) {
+                    val freshFeats = ArrayList<Feature>()
+                    for (r in mergeRects(fresh)) {
+                        val ring = rectRing(
+                            GridMapper.westLon(r[0]), GridMapper.southLat(r[1]),
+                            GridMapper.eastLon(r[2]), GridMapper.northLat(r[3])
+                        )
+                        freshFeats.add(Feature.fromGeometry(Polygon.fromLngLats(listOf(ring))))
+                    }
+                    freshSource.setGeoJson(FeatureCollection.fromFeatures(freshFeats))
+                } else {
+                    freshSource.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+                }
                 if (z >= RIM_ZOOM) {
                     edgeSource.setGeoJson(
-                        Feature.fromGeometry(MultiLineString.fromLngLats(boundary(HashSet(ids))))
+                        Feature.fromGeometry(MultiLineString.fromLngLats(boundary(all)))
                     )
                 } else {
                     edgeSource.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
                 }
             } else {
-                claimedSource.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
-                edgeSource.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+                clearRevealSources()
             }
         } else {
-            claimedSource.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
-            edgeSource.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+            clearRevealSources()
         }
 
         fogSource.setGeoJson(Feature.fromGeometry(Polygon.fromLngLats(rings)))
 
         if (heatOn) refreshHeat()
+    }
+
+    private fun clearRevealSources() {
+        claimedSource.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+        freshSource.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+        edgeSource.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+    }
+
+    /** Применить текущую фазу «дыхания» к слоям свечения (стиль может быть уже мёртв — глушим). */
+    private fun applyBreath() {
+        val k = if (breatheHigh) 1f else BREATH_LOW
+        try {
+            claimedFill.setProperties(PropertyFactory.fillOpacity(baseClaimedOp * k))
+            claimedGlow.setProperties(PropertyFactory.fillOpacity(baseClaimedOp * 0.8f * k))
+            freshFill.setProperties(
+                PropertyFactory.fillOpacity((baseClaimedOp * 1.7f).coerceAtMost(0.5f) * k)
+            )
+            edgeGlowLayer.setProperties(
+                PropertyFactory.lineOpacity(if (breatheHigh) 0.55f else 0.33f)
+            )
+        } catch (_: Exception) {
+        }
+    }
+
+    /** Вспышка на только что открытой клетке: яркий квадрат мгновенно, затем плавно тает. */
+    fun flashCell(id: Long) {
+        if (released) return
+        val x = GridMapper.unpackX(id)
+        val y = GridMapper.unpackY(id)
+        val w = GridMapper.westLon(x)
+        val e = GridMapper.eastLon(x)
+        val s = GridMapper.southLat(y)
+        val n = GridMapper.northLat(y)
+        // Квадрат с запасом 60% вокруг клетки, чтобы вспышка читалась на любом зуме.
+        val padLon = (e - w) * 0.6
+        val padLat = (n - s) * 0.6
+        try {
+            flashSource.setGeoJson(
+                Feature.fromGeometry(
+                    Polygon.fromLngLats(
+                        listOf(rectRing(w - padLon, s - padLat, e + padLon, n + padLat))
+                    )
+                )
+            )
+            flashFill.fillOpacityTransition = TransitionOptions.fromTransitionOptions(0, 0)
+            flashFill.setProperties(PropertyFactory.fillOpacity(0.85f))
+        } catch (_: Exception) {
+            return
+        }
+        handler.postDelayed({
+            if (released) return@postDelayed
+            try {
+                flashFill.fillOpacityTransition =
+                    TransitionOptions.fromTransitionOptions(FLASH_MS, 0)
+                flashFill.setProperties(PropertyFactory.fillOpacity(0f))
+            } catch (_: Exception) {
+            }
+        }, 80)
+    }
+
+    /** Остановить таймеры (вызывать при уничтожении карты). */
+    fun release() {
+        released = true
+        handler.removeCallbacksAndMessages(null)
     }
 
     /** Внешние рёбра области (ребро между открытой и закрытой клеткой) как отрезки. */
@@ -288,12 +424,16 @@ class FogRenderer(style: Style) {
     companion object {
         private const val FOG_SRC = "fog-src"
         private const val CLAIMED_SRC = "claimed-src"
+        private const val FRESH_SRC = "fresh-src"
         private const val EDGE_SRC = "fog-edge-src"
+        private const val FLASH_SRC = "flash-src"
         private const val FOG_FILL = "fog-fill"
         private const val CLAIMED_GLOW = "claimed-glow"
         private const val CLAIMED_FILL = "claimed-fill"
+        private const val FRESH_FILL = "fresh-fill"
         private const val EDGE_GLOW = "fog-edge-glow"
         private const val EDGE_CORE = "fog-edge-core"
+        private const val FLASH_FILL = "flash-fill"
         private const val HEAT_SRC = "heat-src"
         private const val HEAT_LAYER = "heat-layer"
         // Освоенная зона светится уже с городского зума (видно издалека); дыры и
@@ -305,5 +445,11 @@ class FogRenderer(style: Style) {
         private const val GLOW_COLOR = "#22D3EE" // cyan-400 — засветка освоенной зоны
         private const val GLOW_DEEP = "#0EA5E9"  // sky-500 — синее «тело» свечения
         private const val CORE_COLOR = "#CFFAFE" // cyan-50 — яркое ядро контура
+        private const val FRESH_COLOR = "#67E8F9" // cyan-300 — свежий след последних суток
+        private const val FLASH_COLOR = "#ECFEFF" // почти белая вспышка новой клетки
+        private const val BREATH_MS = 2400L      // полупериод «дыхания» свечения
+        private const val BREATH_LOW = 0.72f     // нижняя фаза дыхания (доля от базы)
+        private const val FLASH_MS = 900L        // время угасания вспышки
+        private const val FRESH_MS = 24L * 60 * 60 * 1000 // окно «свежести» — сутки
     }
 }
