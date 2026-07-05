@@ -42,12 +42,15 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -56,8 +59,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SmallFloatingActionButton
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -86,12 +87,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -106,6 +109,7 @@ import org.maplibre.android.maps.Style
 import ru.cityfog.data.VisitRepository
 import ru.cityfog.map.FogRenderer
 import ru.cityfog.tracking.LocationService
+import ru.cityfog.tracking.SessionTracker
 import ru.cityfog.tracking.TrackingState
 import ru.cityfog.ui.theme.CityFogColors
 
@@ -175,7 +179,11 @@ fun MapScreen(modifier: Modifier = Modifier) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> mapView.onStart()
-                Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                Lifecycle.Event.ON_RESUME -> {
+                    mapView.onResume()
+                    // Запись могли остановить из шторки — синхронизируем кнопку с фактом.
+                    tracking = TrackingState.isActive(context)
+                }
                 Lifecycle.Event.ON_PAUSE -> mapView.onPause()
                 Lifecycle.Event.ON_STOP -> mapView.onStop()
                 else -> {}
@@ -190,8 +198,6 @@ fun MapScreen(modifier: Modifier = Modifier) {
     }
 
     val haptic = LocalHapticFeedback.current
-    val snackbarHostState = remember { SnackbarHostState() }
-    var previousRevision by remember { mutableLongStateOf(0L) }
     val revision by VisitRepository.revision.collectAsStateWithLifecycle()
     LaunchedEffect(revision) {
         val m = mapRef.value
@@ -200,16 +206,22 @@ fun MapScreen(modifier: Modifier = Modifier) {
         if (revision > 0) {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         }
-        if (revision > previousRevision && previousRevision > 0) {
-            val newCells = (revision - previousRevision).toInt()
-            val message = if (newCells == 1) "Открыта 1 клетка" else "Открыто $newCells клетки"
-            snackbarHostState.showSnackbar(message)
-        }
-        previousRevision = revision
     }
 
     val progress by VisitRepository.progress.collectAsStateWithLifecycle()
     val isLoading = progress.totalAvailable == 0
+
+    // Живая сессия прогулки: HUD в верхней карточке + итоги по «Стоп».
+    val session by SessionTracker.session.collectAsStateWithLifecycle()
+    var walkSummary by remember { mutableStateOf<WalkSummary?>(null) }
+
+    // Приложение перезапустили при активной записи — поднимаем сессию из prefs,
+    // чтобы HUD показывал живые цифры, не дожидаясь перезапуска сервиса.
+    LaunchedEffect(tracking, isLoading) {
+        if (tracking && !isLoading && !session.active) {
+            SessionTracker.startOrResume(context, progress.visited)
+        }
+    }
 
     // Оркестрованное появление панелей: как только карта загрузилась и сплэш ушёл —
     // верхняя карточка спускается сверху, нижние панели поднимаются снизу.
@@ -227,7 +239,7 @@ fun MapScreen(modifier: Modifier = Modifier) {
                 .safeDrawingPadding()
                 .padding(top = 10.dp)
         ) {
-            GlobalProgressCard(progress = progress, tracking = tracking)
+            GlobalProgressCard(progress = progress, tracking = tracking, session = session)
         }
 
         AnimatedVisibility(
@@ -255,6 +267,24 @@ fun MapScreen(modifier: Modifier = Modifier) {
             Controls(
                 tracking = tracking,
                 onToggleTracking = { tracking = it },
+                onStopSession = {
+                    val fin = SessionTracker.finish(context)
+                    if (fin != null) {
+                        val dur = System.currentTimeMillis() - fin.startTs
+                        val cells = (progress.visited - fin.startCells).coerceAtLeast(0)
+                        // Итоги показываем, только если прогулка была настоящей,
+                        // а не случайный тап «Старт-Стоп».
+                        if (dur >= 30_000L || cells > 0) {
+                            walkSummary = WalkSummary(
+                                durationMs = dur,
+                                distanceM = fin.distanceM,
+                                newCells = cells,
+                                pctGained = if (progress.totalAvailable > 0)
+                                    cells * 100f / progress.totalAvailable else 0f
+                            )
+                        }
+                    }
+                },
                 mapRef = mapRef,
                 styleRef = styleRef,
                 rendererRef = rendererRef,
@@ -263,23 +293,12 @@ fun MapScreen(modifier: Modifier = Modifier) {
             )
         }
 
-        SnackbarHost(
-            hostState = snackbarHostState,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 88.dp),
-            snackbar = { data ->
-                androidx.compose.material3.Snackbar(
-                    snackbarData = data,
-                    containerColor = CityFogColors.Navy800,
-                    contentColor = CityFogColors.TextPrimary,
-                    shape = RoundedCornerShape(16.dp)
-                )
-            }
-        )
-
         AnimatedVisibility(visible = isLoading) {
             SplashOverlay()
+        }
+
+        walkSummary?.let { s ->
+            WalkSummaryDialog(summary = s, onDismiss = { walkSummary = null })
         }
     }
 }
@@ -290,11 +309,20 @@ fun MapScreen(modifier: Modifier = Modifier) {
 private fun GlobalProgressCard(
     progress: VisitRepository.Progress,
     tracking: Boolean,
+    session: SessionTracker.Session,
     modifier: Modifier = Modifier
 ) {
     val loading = progress.totalAvailable == 0
     val visitedKm2 = progress.visited * 0.000_144
     val totalKm2 = progress.totalAvailable * 0.000_144
+    // Секундный тикер таймера сессии — живёт только пока идёт запись.
+    var nowTs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(tracking, session.active) {
+        while (tracking && session.active) {
+            nowTs = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
     // Плавный счётчик: процент «доезжает» до значения, а не прыгает.
     val animatedPct by animateFloatAsState(
         targetValue = if (loading) 0f else progress.percent,
@@ -344,18 +372,41 @@ private fun GlobalProgressCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 AnimatedVisibility(visible = tracking) {
-                    Row(
-                        modifier = Modifier.padding(top = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        RecordingPulse()
-                        Text(
-                            "идёт запись",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = REC_RED,
-                            fontWeight = FontWeight.Medium
-                        )
+                    Column(modifier = Modifier.padding(top = 6.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            RecordingPulse()
+                            Text(
+                                if (session.active)
+                                    "запись · ${fmtDuration((nowTs - session.startTs).coerceAtLeast(0))}"
+                                else "идёт запись",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = REC_RED,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        if (session.active) {
+                            val newCells = (progress.visited - session.startCells).coerceAtLeast(0)
+                            Row(
+                                modifier = Modifier.padding(top = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text(
+                                    fmtDistance(session.distanceM),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    "+$newCells ${cellsWord(newCells)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = CYAN,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -529,6 +580,152 @@ internal fun fmtPct(p: Float): String = when {
     else -> "%.0f%%".format(p)
 }
 
+internal fun fmtDuration(ms: Long): String {
+    val s = ms / 1000
+    return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, (s % 3600) / 60, s % 60)
+    else "%d:%02d".format(s / 60, s % 60)
+}
+
+internal fun fmtDistance(m: Double): String = when {
+    m < 1000 -> "${m.toInt()} м"
+    m < 10_000 -> "%.2f км".format(m / 1000)
+    else -> "%.1f км".format(m / 1000)
+}
+
+/** Русское склонение: 1 клетка, 2 клетки, 5 клеток. */
+internal fun cellsWord(n: Int): String {
+    val r10 = n % 10
+    val r100 = n % 100
+    return when {
+        r100 in 11..14 -> "клеток"
+        r10 == 1 -> "клетка"
+        r10 in 2..4 -> "клетки"
+        else -> "клеток"
+    }
+}
+
+// ----------------------------------------------------------------------------- Итоги прогулки
+
+private data class WalkSummary(
+    val durationMs: Long,
+    val distanceM: Double,
+    val newCells: Int,
+    val pctGained: Float
+)
+
+@Composable
+private fun WalkSummaryDialog(summary: WalkSummary, onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.dp, CYAN.copy(alpha = 0.25f), RoundedCornerShape(28.dp)),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = CityFogColors.Navy800),
+            elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(TEAL_BRIGHT.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.DirectionsWalk,
+                        contentDescription = null,
+                        tint = TEAL_BRIGHT,
+                        modifier = Modifier.size(30.dp)
+                    )
+                }
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    "Прогулка завершена",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = CityFogColors.TextPrimary
+                )
+                Spacer(Modifier.height(22.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    SummaryStat("Время", fmtDuration(summary.durationMs))
+                    SummaryStat("Путь", fmtDistance(summary.distanceM))
+                    SummaryStat("Клетки", "+${summary.newCells}", CYAN)
+                }
+                if (summary.newCells > 0) {
+                    Spacer(Modifier.height(18.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(CYAN.copy(alpha = 0.12f))
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        // Совсем маленький вклад в % города честнее показать площадью.
+                        Text(
+                            if (summary.pctGained >= 0.001f)
+                                "+${fmtGainedPct(summary.pctGained)} Казани"
+                            else "+${summary.newCells * 144} м² Казани",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = CYAN,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+                Button(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = TEAL_BRIGHT,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "Отлично",
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SummaryStat(
+    label: String,
+    value: String,
+    valueColor: Color = CityFogColors.TextPrimary
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            value,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.ExtraBold,
+            color = valueColor
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+internal fun fmtGainedPct(p: Float): String = when {
+    p >= 1f -> "%.1f%%".format(p)
+    p >= 0.01f -> "%.2f%%".format(p)
+    else -> "%.3f%%".format(p)
+}
+
 // ----------------------------------------------------------------------------- Splash
 
 @Composable
@@ -588,6 +785,7 @@ private fun SplashOverlay() {
 private fun Controls(
     tracking: Boolean,
     onToggleTracking: (Boolean) -> Unit,
+    onStopSession: () -> Unit,
     mapRef: MutableState<MapLibreMap?>,
     styleRef: MutableState<Style?>,
     rendererRef: MutableState<FogRenderer?>,
@@ -656,6 +854,8 @@ private fun Controls(
         ExtendedFloatingActionButton(
             onClick = {
                 if (tracking) {
+                    // Сначала фиксируем итоги (пока сессия жива), потом гасим сервис.
+                    onStopSession()
                     LocationService.stop(context)
                     onToggleTracking(false)
                 } else {

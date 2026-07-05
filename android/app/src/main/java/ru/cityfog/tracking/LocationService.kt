@@ -46,6 +46,7 @@ class LocationService : Service() {
     // Быстрый фильтр "стоим на месте": не дёргаем репозиторий, пока клетка та же.
     @Volatile private var lastCellId: Long = Long.MIN_VALUE
     @Volatile private var lastTrackTs: Long = 0L
+    @Volatile private var lastNotifTs: Long = 0L
 
     private val callback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
@@ -63,10 +64,14 @@ class LocationService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             TrackingState.setActive(this, false) // явная остановка — больше не поднимать
+            SessionTracker.finish(this) // остановка из шторки — итоги не показываем
             stopSelf()
             return START_NOT_STICKY
         }
         TrackingState.setActive(this, true) // намерение «вести запись» переживёт перезапуск
+        // При старте из UI репозиторий уже загружен (сплэш ждёт init), а при
+        // system-перезапуске сессия всё равно продолжается из prefs — параметр не нужен.
+        SessionTracker.startOrResume(this, VisitRepository.progress.value.visited)
         startForegroundCompat()
         startUpdates()
         return START_STICKY // система перезапустит сервис, если убьёт его под нагрузкой
@@ -77,16 +82,35 @@ class LocationService : Service() {
         if (loc.hasAccuracy() && loc.accuracy > MAX_ACCURACY_M) return
         val ts = System.currentTimeMillis()
 
+        // Метры сессии — по каждому принятому фиксу (HUD на карте).
+        SessionTracker.onFix(this, loc.latitude, loc.longitude)
+
         // Пишем трек: не чаще раза в 2 секунды, чтобы не раздувать файл.
         if (ts - lastTrackTs >= 2000L) {
             trackStore.append(loc.latitude, loc.longitude, ts)
             lastTrackTs = ts
         }
 
+        // Живое уведомление: км и клетки прямо в шторке, обновляем не чаще раза в 10 с.
+        if (ts - lastNotifTs >= 10_000L) {
+            lastNotifTs = ts
+            updateNotification()
+        }
+
         val id = GridMapper.cellIdOrNull(loc.latitude, loc.longitude) ?: return
         if (id == lastCellId) return
         lastCellId = id
         VisitRepository.recordFix(loc.latitude, loc.longitude, ts)
+    }
+
+    private fun updateNotification() {
+        val s = SessionTracker.session.value
+        if (!s.active) return
+        val cells = (VisitRepository.progress.value.visited - s.startCells).coerceAtLeast(0)
+        val dist = if (s.distanceM < 1000) "${s.distanceM.toInt()} м"
+        else "%.1f км".format(s.distanceM / 1000)
+        getSystemService(NotificationManager::class.java)
+            .notify(NOTIF_ID, buildNotification("$dist · открыто +$cells"))
     }
 
     @SuppressLint("MissingPermission") // разрешение гарантирует UI до старта сервиса
@@ -120,7 +144,9 @@ class LocationService : Service() {
         }
     }
 
-    private fun buildNotification(): Notification {
+    private fun buildNotification(
+        text: String = "Открываю клетки по ходу движения"
+    ): Notification {
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
@@ -131,7 +157,7 @@ class LocationService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("CityFog — запись маршрута")
-            .setContentText("Открываю клетки по ходу движения")
+            .setContentText(text)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
             .setContentIntent(open)
