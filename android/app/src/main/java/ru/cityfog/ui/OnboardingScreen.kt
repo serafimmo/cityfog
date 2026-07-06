@@ -1,9 +1,22 @@
 package ru.cityfog.ui
 
 import android.content.Context
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,32 +26,43 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
 import kotlinx.coroutines.launch
+import ru.cityfog.ui.theme.AuroraBackground
 import ru.cityfog.ui.theme.CityFogColors
 import ru.cityfog.ui.theme.CityFogTheme
+import ru.cityfog.ui.theme.DisplayFamily
+import ru.cityfog.ui.theme.glassPanel
 
 private const val PREFS_NAME = "cityfog_prefs"
 private const val KEY_ONBOARDED = "onboarded"
@@ -49,101 +73,169 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     val scope = rememberCoroutineScope()
     val pagerState = rememberPagerState(pageCount = { 3 })
 
-    Column(
+    // Онбординг живёт в той же атмосфере, что и остальное приложение:
+    // фон-сканер за контентом, а не плоская заливка темы.
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .background(CityFogColors.Void)
     ) {
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.weight(1f)
-        ) { page ->
-            OnboardingPage(page)
-        }
+        AuroraBackground(Modifier.fillMaxSize())
 
-        // Индикатор страниц.
-        Row(
-            modifier = Modifier.padding(bottom = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            repeat(pagerState.pageCount) { index ->
-                val active = pagerState.currentPage == index
-                Box(
-                    modifier = Modifier
-                        .size(width = if (active) 24.dp else 10.dp, height = 10.dp)
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(
-                            if (active) CityFogColors.Cyan400
-                            else CityFogColors.Navy600
-                        )
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.weight(1f)
+            ) { page ->
+                // Смещение страницы относительно видимой позиции пейджера:
+                // текст листается с обычной скоростью, а иллюстрация «отстаёт».
+                val off = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+                OnboardingPage(
+                    page = page,
+                    pageCount = pagerState.pageCount,
+                    pageOffset = off,
+                    visible = pagerState.currentPage == page
                 )
             }
-        }
 
-        // Кнопки навигации.
-        AnimatedVisibility(
-            visible = pagerState.currentPage == pagerState.pageCount - 1,
-            enter = fadeIn()
-        ) {
-            Button(
-                onClick = {
-                    markOnboarded(context)
-                    onFinish()
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = CityFogColors.Cyan400,
-                    contentColor = CityFogColors.Navy900
-                )
-            ) {
-                Text(
-                    "Начать исследование",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        AnimatedVisibility(
-            visible = pagerState.currentPage != pagerState.pageCount - 1,
-            enter = fadeIn()
-        ) {
+            // Индикатор страниц: активная точка растягивается пружиной и светится,
+            // чтобы переключение читалось боковым зрением, без скачка размеров.
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.padding(bottom = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                TextButton(
-                    onClick = {
-                        markOnboarded(context)
-                        onFinish()
-                    }
-                ) {
-                    Text("Пропустить", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                repeat(pagerState.pageCount) { index ->
+                    val active = pagerState.currentPage == index
+                    val w by animateDpAsState(
+                        targetValue = if (active) 24.dp else 10.dp,
+                        animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f),
+                        label = "dot-w"
+                    )
+                    val dotColor by animateColorAsState(
+                        targetValue = if (active) CityFogColors.Cyan400 else CityFogColors.TextMuted,
+                        label = "dot-c"
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(width = w, height = 10.dp)
+                            .then(
+                                if (active) Modifier.shadow(
+                                    8.dp, CircleShape,
+                                    ambientColor = CityFogColors.Cyan400,
+                                    spotColor = CityFogColors.Cyan400
+                                ) else Modifier
+                            )
+                            .clip(RoundedCornerShape(5.dp))
+                            .background(dotColor)
+                            .then(
+                                if (active) Modifier.background(
+                                    Brush.horizontalGradient(
+                                        listOf(CityFogColors.Teal400, CityFogColors.Cyan400)
+                                    )
+                                ) else Modifier
+                            )
+                    )
                 }
-                Button(
-                    onClick = {
-                        scope.launch {
-                            pagerState.animateScrollToPage(pagerState.currentPage + 1)
+            }
+
+            // Одна зона под кнопки с кросс-фейдом состояний, чтобы лейаут
+            // не прыгал при переходе на последнюю страницу.
+            AnimatedContent(
+                targetState = pagerState.currentPage == pagerState.pageCount - 1,
+                transitionSpec = {
+                    (fadeIn(tween(220)) + slideInVertically { it / 3 })
+                        .togetherWith(fadeOut(tween(150)))
+                },
+                label = "onboarding-cta"
+            ) { isLastPage ->
+                if (isLastPage) {
+                    // Финальный CTA — фирменная неоновая капсула, как «Старт» на карте.
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .shadow(
+                                    20.dp, CircleShape,
+                                    ambientColor = CityFogColors.Cyan400,
+                                    spotColor = CityFogColors.Cyan400
+                                )
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(CityFogColors.Teal400, CityFogColors.Cyan400)
+                                    )
+                                )
+                                .clickable {
+                                    markOnboarded(context)
+                                    onFinish()
+                                }
+                                .padding(horizontal = 28.dp, vertical = 16.dp)
+                        ) {
+                            Text(
+                                "Начать исследование",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontFamily = DisplayFamily,
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                color = CityFogColors.Navy900
+                            )
                         }
-                    },
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = CityFogColors.Navy700,
-                        contentColor = CityFogColors.Cyan400
-                    )
-                ) {
-                    Text("Далее", fontWeight = FontWeight.SemiBold)
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = null,
-                        modifier = Modifier.padding(start = 8.dp)
-                    )
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(
+                            onClick = {
+                                markOnboarded(context)
+                                onFinish()
+                            }
+                        ) {
+                            Text(
+                                "Пропустить",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = CityFogColors.TextMuted
+                            )
+                        }
+                        // «Далее» — стеклянная капсула: второстепенное действие
+                        // не спорит по яркости с будущим CTA.
+                        Row(
+                            modifier = Modifier
+                                .glassPanel(18.dp)
+                                .clickable {
+                                    scope.launch {
+                                        pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                                    }
+                                }
+                                .padding(horizontal = 22.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Далее",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = CityFogColors.Cyan400
+                            )
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = null,
+                                tint = CityFogColors.Cyan400,
+                                modifier = Modifier
+                                    .padding(start = 8.dp)
+                                    .size(18.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -151,7 +243,12 @@ fun OnboardingScreen(onFinish: () -> Unit) {
 }
 
 @Composable
-private fun OnboardingPage(page: Int) {
+private fun OnboardingPage(
+    page: Int,
+    pageCount: Int,
+    pageOffset: Float,
+    visible: Boolean
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -159,18 +256,22 @@ private fun OnboardingPage(page: Int) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // Иллюстрация — стилизованная сетка/туман.
+        // Иллюстрация — сетка клеток «за стеклом», как карта под HUD-панелями.
+        // Параллакс: картинка едет на четверть скорости и слегка гаснет по краям.
         Box(
             modifier = Modifier
+                .graphicsLayer {
+                    translationX = pageOffset * size.width * 0.25f
+                    alpha = 1f - 0.4f * abs(pageOffset)
+                }
                 .size(180.dp)
-                .clip(RoundedCornerShape(32.dp))
-                .background(CityFogColors.Navy800),
+                .glassPanel(28.dp),
             contentAlignment = Alignment.Center
         ) {
             when (page) {
-                0 -> GridIllustration(openCenter = true)
-                1 -> GridIllustration(openPath = true)
-                2 -> GridIllustration(openDistricts = true)
+                0 -> GridIllustration(openCenter = true, visible = visible)
+                1 -> GridIllustration(openPath = true, visible = visible)
+                2 -> GridIllustration(openDistricts = true, visible = visible)
             }
         }
 
@@ -182,9 +283,16 @@ private fun OnboardingPage(page: Int) {
             else -> "Закрывай районы" to "Следи за прогрессом по семи районам Казани. Первая цель — Ново-Савиновский на 100%!"
         }
 
+        // Честная типографическая шкала: eyebrow 11sp → титул 26sp → текст 16sp.
+        Text(
+            "ШАГ ${page + 1} / $pageCount",
+            style = MaterialTheme.typography.labelSmall,
+            color = CityFogColors.Cyan400
+        )
+        Spacer(Modifier.height(10.dp))
         Text(
             title,
-            style = MaterialTheme.typography.headlineMedium,
+            style = MaterialTheme.typography.displaySmall,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onBackground
@@ -194,7 +302,8 @@ private fun OnboardingPage(page: Int) {
             desc,
             style = MaterialTheme.typography.bodyLarge,
             textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = CityFogColors.TextSecondary,
+            modifier = Modifier.widthIn(max = 300.dp)
         )
     }
 }
@@ -203,42 +312,109 @@ private fun OnboardingPage(page: Int) {
 private fun GridIllustration(
     openCenter: Boolean = false,
     openPath: Boolean = false,
-    openDistricts: Boolean = false
+    openDistricts: Boolean = false,
+    visible: Boolean = true
 ) {
     val cells = 5
     val gap = 6.dp
     val cellSize = 18.dp
+    // Порядок клеток «прогулки»: слева направо по улице, затем вниз по перекрёстку.
+    val pathCells = listOf(2 to 0, 2 to 1, 2 to 2, 2 to 3, 3 to 3, 4 to 3)
+
+    // Бегущее «сканирование» для страницы с маршрутом: t пробегает индексы клеток
+    // пути с запасом в 2 такта, чтобы трейл держался целиком перед новым циклом.
+    val scanT = if (openPath) {
+        rememberInfiniteTransition(label = "trail").animateFloat(
+            initialValue = 0f,
+            targetValue = pathCells.size + 2f,
+            animationSpec = infiniteRepeatable(tween(2400, easing = LinearEasing)),
+            label = "trail-t"
+        ).value
+    } else 0f
+
+    // Сквозной номер активной клетки — для входного stagger'а статичных страниц.
+    var staggerIdx = 0
     Column(verticalArrangement = Arrangement.spacedBy(gap)) {
         repeat(cells) { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
                 repeat(cells) { col ->
                     val active = when {
                         openCenter -> row in 1..3 && col in 1..3
-                        openPath -> (row == 2 && col <= 3) || (col == 3 && row in 2..4)
+                        openPath -> pathCells.contains(row to col)
                         openDistricts -> (row + col) % 2 == 0
                         else -> false
+                    }
+                    val cellAlpha: Float = when {
+                        !active -> 1f
+                        // Клетки пути зажигаются последовательно и зацикливаются.
+                        openPath -> (scanT - pathCells.indexOf(row to col)).coerceIn(0f, 1f)
+                        // Статичные клетки проявляются каскадом при показе страницы.
+                        else -> {
+                            val idx = staggerIdx++
+                            val a by animateFloatAsState(
+                                targetValue = if (visible) 1f else 0f,
+                                animationSpec = tween(
+                                    260,
+                                    delayMillis = if (visible) idx * 60 else 0
+                                ),
+                                label = "cell-in"
+                            )
+                            a
+                        }
                     }
                     Box(
                         modifier = Modifier
                             .size(cellSize)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(
-                                if (active) CityFogColors.Cyan400
-                                else CityFogColors.Navy600.copy(alpha = 0.5f)
+                            .graphicsLayer { alpha = cellAlpha },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (active) {
+                            // Мягкий ореол за клеткой — то же свечение, что у открытых
+                            // зон на карте; выходит за границы слота осознанно.
+                            Box(
+                                Modifier
+                                    .requiredSize(cellSize + 12.dp)
+                                    .background(
+                                        Brush.radialGradient(
+                                            listOf(
+                                                CityFogColors.Cyan400.copy(alpha = 0.35f),
+                                                Color.Transparent
+                                            )
+                                        )
+                                    )
                             )
-                    )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(cellSize)
+                                .then(
+                                    // Центральная клетка — «ты здесь», ей больше света.
+                                    if (active && row == 2 && col == 2) Modifier.shadow(
+                                        8.dp, RoundedCornerShape(4.dp),
+                                        spotColor = CityFogColors.Cyan400
+                                    ) else Modifier
+                                )
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(
+                                    if (active) Brush.verticalGradient(
+                                        listOf(CityFogColors.Cyan300, CityFogColors.Cyan400)
+                                    )
+                                    else SolidColor(CityFogColors.Navy600.copy(alpha = 0.5f))
+                                )
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-@Preview(showBackground = true, backgroundColor = 0xFF0A0E27, widthDp = 380, heightDp = 700)
+@Preview(showBackground = true, backgroundColor = 0xFF050914, widthDp = 380, heightDp = 700)
 @Composable
 private fun OnboardingPagePreview() {
     CityFogTheme {
-        Box(Modifier.background(CityFogColors.Navy900)) {
-            OnboardingPage(0)
+        Box(Modifier.background(CityFogColors.Void)) {
+            OnboardingPage(page = 0, pageCount = 3, pageOffset = 0f, visible = true)
         }
     }
 }

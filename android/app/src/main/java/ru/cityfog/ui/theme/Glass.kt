@@ -14,9 +14,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -29,13 +31,43 @@ import androidx.compose.ui.unit.dp
  * [AuroraBackground] — медленно дрейфующие орбы света (аврора + фонари) за стеклом.
  * Дешёвая имитация «ambient gradient»: три radial-градиента на Canvas.
  */
-fun Modifier.glassPanel(radius: Dp = 24.dp): Modifier {
-    val shape = RoundedCornerShape(radius)
+/**
+ * Токены радиусов скруглений — четыре ступени вместо случайных чисел,
+ * чтобы вложенные поверхности ощущались одной системой.
+ */
+object CityFogRadius {
+    val Hero = 28.dp     // hero-карточки и диалоги
+    val Card = 24.dp     // обычные карточки, навбар, панели
+    val Inner = 20.dp    // вложенные блоки внутри карточек
+    val Control = 16.dp  // мелкие контролы
+}
+
+fun Modifier.glassPanel(radius: Dp = CityFogRadius.Card): Modifier =
+    glassPanel(RoundedCornerShape(radius))
+
+fun Modifier.glassPanel(shape: Shape): Modifier {
     return this
+        // Панель должна «парить»: глубокая тёмная тень + холодный неоновый отблеск
+        // снизу — тот же приём, что у StartStopButton, но приглушённый.
+        .shadow(
+            elevation = 18.dp,
+            shape = shape,
+            ambientColor = Color(0xFF04060F),
+            spotColor = CityFogColors.Cyan400.copy(alpha = 0.35f)
+        )
         .clip(shape)
         .background(
+            // Заливка чуть прозрачнее, с фиолетовым средним стопом:
+            // аврора-фон сквозит через стекло, а не гаснет за ним.
             Brush.verticalGradient(
-                listOf(Color(0xF0111E42), Color(0xF7070D22))
+                listOf(Color(0xD9111E42), Color(0xE60E1230), Color(0xEE070D22))
+            )
+        )
+        .background(
+            // Блик верхней кромки — «свет сверху» делает стекло выпуклым.
+            Brush.verticalGradient(
+                0f to Color.White.copy(alpha = 0.07f),
+                0.12f to Color.Transparent
             )
         )
         .border(
@@ -90,13 +122,23 @@ fun AuroraBackground(modifier: Modifier = Modifier) {
             for (i in 0 until cols) {
                 val hash = (i * 73856093) xor (j * 19349663)
                 val v = (hash ushr 4) and 0xFF
-                if (v < 14) { // ~5% клеток подсвечены
+                if (v < 9) { // огней меньше, но каждый осмысленнее
                     val tint = when (v % 3) {
                         0 -> CityFogColors.Cyan400
                         1 -> CityFogColors.Violet400
                         else -> CityFogColors.Amber400
                     }
                     val a = 0.06f + (v % 5) * 0.016f
+                    // Ореол вокруг клетки — «фонарь в тумане»: голый квадрат при
+                    // такой малой альфе читался как битый пиксель.
+                    val c = Offset(i * cell + cell / 2f, j * cell + cell / 2f)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            listOf(tint.copy(alpha = a * 1.6f), Color.Transparent),
+                            center = c, radius = cell * 1.4f
+                        ),
+                        radius = cell * 1.4f, center = c
+                    )
                     drawRect(
                         color = tint.copy(alpha = a),
                         topLeft = Offset(i * cell + 1f, j * cell + 1f),

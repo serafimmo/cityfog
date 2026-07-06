@@ -13,8 +13,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -29,6 +32,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -40,6 +44,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -60,14 +65,10 @@ import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Whatshot
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -85,6 +86,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -96,6 +98,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -124,7 +127,9 @@ import ru.cityfog.map.FogRenderer
 import ru.cityfog.tracking.LocationService
 import ru.cityfog.tracking.SessionTracker
 import ru.cityfog.tracking.TrackingState
+import ru.cityfog.ui.theme.AuroraBackground
 import ru.cityfog.ui.theme.CityFogColors
+import ru.cityfog.ui.theme.CityFogRadius
 import ru.cityfog.ui.theme.DisplayFamily
 import ru.cityfog.ui.theme.MonoFamily
 import ru.cityfog.ui.theme.glassPanel
@@ -165,6 +170,16 @@ fun MapScreen(modifier: Modifier = Modifier) {
             getMapAsync { map ->
                 mapRef.value = map
                 map.moveCamera(CameraUpdateFactory.newLatLngZoom(KAZAN, START_ZOOM))
+                // Логотип и атрибуция MapLibre целиком над плавающим доком —
+                // требование лицензии тайлов: их нельзя перекрывать интерфейсом.
+                val den = context.resources.displayMetrics.density
+                val attrBottom = (110 * den).toInt()
+                map.uiSettings.setLogoMargins(
+                    (4 * den).toInt(), (4 * den).toInt(), (4 * den).toInt(), attrBottom
+                )
+                map.uiSettings.setAttributionMargins(
+                    (92 * den).toInt(), (4 * den).toInt(), (4 * den).toInt(), attrBottom
+                )
                 map.setStyle(Style.Builder().fromUri(STYLE_URL)) { style ->
                     styleRef.value = style
                     val renderer = FogRenderer(style)
@@ -272,7 +287,11 @@ fun MapScreen(modifier: Modifier = Modifier) {
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .safeDrawingPadding()
-                .padding(start = 12.dp, bottom = 100.dp)
+                // end-отступ резервирует место под капсулу «Старт»: раскрытая
+                // панель районов физически не может под неё залезть.
+                // Низ — выше атрибуции MapLibre (она на DockClearance+10):
+                // и лицензия соблюдена, и панель с ватермаркой не слипаются.
+                .padding(start = 12.dp, end = 170.dp, bottom = DockClearance + 34.dp)
         ) {
             DistrictsPanel(progress = progress)
         }
@@ -284,8 +303,8 @@ fun MapScreen(modifier: Modifier = Modifier) {
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .safeDrawingPadding()
-                // Низ с запасом под плавающий навбар (≈92dp), чтобы кнопки не залезали на меню.
-                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 100.dp)
+                // Низ с общим зазором под плавающий док, чтобы кнопки не залезали на меню.
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = DockClearance)
         ) {
             Controls(
                 tracking = tracking,
@@ -316,7 +335,14 @@ fun MapScreen(modifier: Modifier = Modifier) {
             )
         }
 
-        AnimatedVisibility(visible = isLoading) {
+        // Сплэш не схлопывается стоковым shrinkOut, а растворяется с лёгким
+        // наездом — «камера проваливается сквозь туман» в карту.
+        AnimatedVisibility(
+            visible = isLoading,
+            enter = fadeIn(tween(200)),
+            exit = fadeOut(tween(500, easing = FastOutSlowInEasing)) +
+                scaleOut(targetScale = 1.08f, animationSpec = tween(500))
+        ) {
             SplashOverlay()
         }
 
@@ -352,17 +378,20 @@ private fun GlobalProgressCard(
         animationSpec = tween(1000, easing = FastOutSlowInEasing),
         label = "global-pct"
     )
-    Box(modifier = modifier.glassPanel(24.dp)) {
+    Box(modifier = modifier.glassPanel(CityFogRadius.Hero)) {
         Row(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             ProgressRing(percent = animatedPct, size = 64.dp, stroke = 6.dp) {
                 Text(
                     text = if (loading) "…" else fmtPct(animatedPct),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
+                    // Телеметрия — моно inline: системный labelLarge теперь Manrope.
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontFamily = MonoFamily, fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.sp, fontFeatureSettings = "tnum"
+                    ),
                     color = CYAN
                 )
             }
@@ -425,14 +454,28 @@ private fun GlobalProgressCard(
                                     ),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                Text(
-                                    "+$newCells ${cellsWord(newCells)}",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontFamily = MonoFamily, letterSpacing = 0.5.sp
-                                    ),
-                                    color = CYAN,
-                                    fontWeight = FontWeight.SemiBold
-                                )
+                                // Одометр: новая цифра выкатывается снизу вверх,
+                                // а не подменяется мгновенно — зерно дофамина.
+                                AnimatedContent(
+                                    targetState = newCells,
+                                    transitionSpec = {
+                                        (slideInVertically { it / 2 } + fadeIn(tween(180)))
+                                            .togetherWith(
+                                                slideOutVertically { -it / 2 } + fadeOut(tween(120))
+                                            )
+                                            .using(SizeTransform(clip = true))
+                                    },
+                                    label = "cells-odometer"
+                                ) { n ->
+                                    Text(
+                                        "+$n ${cellsWord(n)}",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontFamily = MonoFamily, letterSpacing = 0.5.sp
+                                        ),
+                                        color = CYAN,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                             }
                         }
                     }
@@ -534,16 +577,16 @@ private fun DistrictsPanel(
 
     Box(
         modifier = modifier
-            .widthIn(max = 280.dp)
-            .glassPanel(22.dp)
+            // В свёрнутом виде панель обнимает контент и не спорит с кнопкой
+            // «Старт»; ширину ограничиваем только раскрытому списку.
+            .widthIn(max = if (expanded) 260.dp else Dp.Unspecified)
+            .glassPanel(CityFogRadius.Card)
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded },
+                modifier = Modifier.clickable { expanded = !expanded },
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
                     "Районы",
@@ -577,11 +620,12 @@ private fun DistrictsPanel(
                 visible = expanded,
                 enter = expandVertically(tween(280, easing = FastOutSlowInEasing)) +
                     fadeIn(tween(280)),
-                exit = shrinkVertically(tween(200)) + fadeOut(tween(160))
+                exit = shrinkVertically(tween(240, easing = FastOutSlowInEasing)) +
+                    fadeOut(tween(200))
             ) {
                 Column(modifier = Modifier.padding(top = 8.dp)) {
-                    districts.forEach { d ->
-                        DistrictRow(d)
+                    districts.forEachIndexed { index, d ->
+                        DistrictRow(d, index)
                         Spacer(Modifier.height(10.dp))
                     }
                 }
@@ -591,9 +635,27 @@ private fun DistrictsPanel(
 }
 
 @Composable
-private fun DistrictRow(d: VisitRepository.DistrictProgress) {
+private fun DistrictRow(d: VisitRepository.DistrictProgress, index: Int) {
     val color = districtColor(d.id)
-    Column {
+    // Каскад: строки «зажигаются» одна за другой сверху вниз при каждом раскрытии.
+    val appear = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        delay(index * 40L)
+        appear.animateTo(1f, tween(300, easing = FastOutSlowInEasing))
+    }
+    // Полоска стартует с нуля и «доезжает» до значения — animateFloatAsState
+    // инициализировался бы сразу целевым и движения при раскрытии не было бы.
+    val fill = remember { Animatable(0f) }
+    val target = (d.percent / 100f).coerceIn(0f, 1f)
+    LaunchedEffect(target) {
+        fill.animateTo(target, tween(900, easing = FastOutSlowInEasing))
+    }
+    Column(
+        modifier = Modifier.graphicsLayer {
+            alpha = appear.value
+            translationY = (1f - appear.value) * 24.dp.toPx()
+        }
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -621,21 +683,27 @@ private fun DistrictRow(d: VisitRepository.DistrictProgress) {
             )
         }
         Spacer(Modifier.height(4.dp))
-        // Полоска «доезжает» до значения при раскрытии панели.
-        val animPct by animateFloatAsState(
-            targetValue = (d.percent / 100f).coerceIn(0f, 1f),
-            animationSpec = tween(800, easing = FastOutSlowInEasing),
-            label = "district-bar"
-        )
-        LinearProgressIndicator(
-            progress = { animPct },
+        // Кастомная полоска вместо LinearProgressIndicator: без stop-дота
+        // и зазора трека, с фирменным градиентом — как DistrictBar в статистике.
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(5.dp)
-                .clip(CircleShape),
-            color = color,
-            trackColor = TRACK
-        )
+                .clip(CircleShape)
+                .background(CityFogColors.Navy700)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(fill.value)
+                    .height(5.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(color, color.copy(alpha = 0.7f))
+                        )
+                    )
+            )
+        }
     }
 }
 
@@ -682,8 +750,15 @@ private data class WalkSummary(
     val pctGained: Float
 )
 
+/**
+ * Общая обвязка фирменных диалогов: стеклянная hero-карточка с пружинным
+ * входом — единый язык для итогов прогулки и системных просьб.
+ */
 @Composable
-private fun WalkSummaryDialog(summary: WalkSummary, onDismiss: () -> Unit) {
+private fun GlassDialog(
+    onDismiss: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
     Dialog(onDismissRequest = onDismiss) {
         // Пружинное появление: карточка «выпрыгивает» с лёгким перелётом.
         var shown by remember { mutableStateOf(false) }
@@ -691,12 +766,12 @@ private fun WalkSummaryDialog(summary: WalkSummary, onDismiss: () -> Unit) {
         val scale by animateFloatAsState(
             targetValue = if (shown) 1f else 0.86f,
             animationSpec = spring(dampingRatio = 0.55f, stiffness = 420f),
-            label = "summary-scale"
+            label = "dialog-scale"
         )
         val alpha by animateFloatAsState(
             targetValue = if (shown) 1f else 0f,
             animationSpec = tween(200),
-            label = "summary-alpha"
+            label = "dialog-alpha"
         )
         Box(
             modifier = Modifier
@@ -706,84 +781,102 @@ private fun WalkSummaryDialog(summary: WalkSummary, onDismiss: () -> Unit) {
                     scaleY = scale
                     this.alpha = alpha
                 }
-                .glassPanel(28.dp)
+                .glassPanel(CityFogRadius.Hero)
         ) {
             Column(
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.CenterHorizontally,
+                content = content
+            )
+        }
+    }
+}
+
+/** Иконка диалога в светящемся кружке — «прожектор» на главную мысль. */
+@Composable
+private fun DialogGlowIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color) {
+    Box(
+        modifier = Modifier
+            .size(56.dp)
+            .clip(CircleShape)
+            .background(tint.copy(alpha = 0.15f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(30.dp)
+        )
+    }
+}
+
+/** Главное действие диалога — неоновая teal→cyan капсула со свечением. */
+@Composable
+private fun DialogNeonButton(label: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(
+                14.dp, RoundedCornerShape(18.dp),
+                ambientColor = CYAN, spotColor = CYAN
+            )
+            .clip(RoundedCornerShape(18.dp))
+            .background(Brush.horizontalGradient(listOf(TEAL_BRIGHT, CYAN)))
+            .clickable { onClick() }
+            .padding(vertical = 14.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.titleMedium.copy(fontFamily = DisplayFamily),
+            fontWeight = FontWeight.SemiBold,
+            color = CityFogColors.Navy900
+        )
+    }
+}
+
+@Composable
+private fun WalkSummaryDialog(summary: WalkSummary, onDismiss: () -> Unit) {
+    GlassDialog(onDismiss = onDismiss) {
+        DialogGlowIcon(Icons.AutoMirrored.Filled.DirectionsWalk, TEAL_BRIGHT)
+        Spacer(Modifier.height(14.dp))
+        Text(
+            "Прогулка завершена",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = CityFogColors.TextPrimary
+        )
+        Spacer(Modifier.height(22.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            SummaryStat("Время", fmtDuration(summary.durationMs))
+            SummaryStat("Путь", fmtDistance(summary.distanceM))
+            SummaryStat("Клетки", "+${summary.newCells}", CYAN)
+        }
+        if (summary.newCells > 0) {
+            Spacer(Modifier.height(18.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(CYAN.copy(alpha = 0.12f))
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .clip(CircleShape)
-                        .background(TEAL_BRIGHT.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.DirectionsWalk,
-                        contentDescription = null,
-                        tint = TEAL_BRIGHT,
-                        modifier = Modifier.size(30.dp)
-                    )
-                }
-                Spacer(Modifier.height(14.dp))
+                // Совсем маленький вклад в % города честнее показать площадью.
                 Text(
-                    "Прогулка завершена",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = CityFogColors.TextPrimary
+                    if (summary.pctGained >= 0.001f)
+                        "+${fmtGainedPct(summary.pctGained)} Казани"
+                    else "+${summary.newCells * 144} м² Казани",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = CYAN,
+                    fontWeight = FontWeight.SemiBold
                 )
-                Spacer(Modifier.height(22.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    SummaryStat("Время", fmtDuration(summary.durationMs))
-                    SummaryStat("Путь", fmtDistance(summary.distanceM))
-                    SummaryStat("Клетки", "+${summary.newCells}", CYAN)
-                }
-                if (summary.newCells > 0) {
-                    Spacer(Modifier.height(18.dp))
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(CYAN.copy(alpha = 0.12f))
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
-                    ) {
-                        // Совсем маленький вклад в % города честнее показать площадью.
-                        Text(
-                            if (summary.pctGained >= 0.001f)
-                                "+${fmtGainedPct(summary.pctGained)} Казани"
-                            else "+${summary.newCells * 144} м² Казани",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = CYAN,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-                Spacer(Modifier.height(24.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .shadow(
-                            14.dp, RoundedCornerShape(18.dp),
-                            ambientColor = CYAN, spotColor = CYAN
-                        )
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(Brush.horizontalGradient(listOf(TEAL_BRIGHT, CYAN)))
-                        .clickable { onDismiss() }
-                        .padding(vertical = 14.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        "Отлично",
-                        style = MaterialTheme.typography.titleMedium.copy(fontFamily = DisplayFamily),
-                        fontWeight = FontWeight.SemiBold,
-                        color = CityFogColors.Navy900
-                    )
-                }
             }
         }
+        Spacer(Modifier.height(24.dp))
+        DialogNeonButton("Отлично", onDismiss)
     }
 }
 
@@ -796,8 +889,13 @@ private fun SummaryStat(
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             value,
-            // Телеметрия — моно (headlineSmall в теме настроен на JetBrains Mono).
-            style = MaterialTheme.typography.headlineSmall,
+            // Телеметрия — моно inline: системный headlineSmall теперь Unbounded
+            // (заголовки диалогов), а цифры задают шрифт сами.
+            style = MaterialTheme.typography.headlineSmall.copy(
+                fontFamily = MonoFamily, fontWeight = FontWeight.Bold,
+                fontSize = 28.sp, lineHeight = 34.sp,
+                letterSpacing = 0.sp, fontFeatureSettings = "tnum"
+            ),
             color = valueColor
         )
         Spacer(Modifier.height(2.dp))
@@ -829,13 +927,26 @@ private fun SplashOverlay() {
         ),
         label = "splash-pulse"
     )
+    // «Кольцо сканера» вместо стокового спиннера: хвост дуги тает в прозрачность.
+    val ringAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1100, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "splash-ring"
+    )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(CityFogColors.Navy900),
+            // Тот же Void и та же аврора, что за вкладками: сплэш растворяется
+            // в приложение без скачка цвета.
+            .background(CityFogColors.Void),
         contentAlignment = Alignment.Center
     ) {
+        AuroraBackground(Modifier.fillMaxSize())
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Image(
                 painter = painterResource(ru.cityfog.R.mipmap.ic_launcher_art),
@@ -846,24 +957,47 @@ private fun SplashOverlay() {
                     .clip(RoundedCornerShape(30.dp))
             )
             Spacer(Modifier.height(28.dp))
+            // Вордмарк — та же градиентная сигнатура, что у hero-цифр.
             Text(
                 "CityFog",
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold,
-                color = CityFogColors.TextPrimary
+                style = MaterialTheme.typography.displayMedium.copy(
+                    brush = Brush.linearGradient(
+                        listOf(
+                            CityFogColors.Cyan300,
+                            CityFogColors.Cyan400,
+                            CityFogColors.Violet400
+                        )
+                    )
+                ),
+                fontWeight = FontWeight.ExtraBold
             )
             Spacer(Modifier.height(8.dp))
+            // Статус — телеметрия в духе HUD, а не обычная фраза.
             Text(
-                "Загружаю карту Казани…",
-                style = MaterialTheme.typography.bodyMedium,
-                color = CityFogColors.TextSecondary
+                "ЗАГРУЖАЮ КАРТУ КАЗАНИ…",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = MonoFamily, letterSpacing = 1.5.sp
+                ),
+                color = CityFogColors.TextMuted
             )
             Spacer(Modifier.height(32.dp))
-            CircularProgressIndicator(
-                modifier = Modifier.size(28.dp),
-                color = CYAN,
-                trackColor = CityFogColors.Navy700
-            )
+            Canvas(
+                modifier = Modifier
+                    .size(32.dp)
+                    .rotate(ringAngle)
+            ) {
+                val sw = 3.dp.toPx()
+                drawArc(
+                    brush = Brush.sweepGradient(listOf(Color.Transparent, CYAN)),
+                    startAngle = 0f,
+                    sweepAngle = 300f,
+                    useCenter = false,
+                    // Инсет на полштриха, чтобы круглые концы дуги не резались краем.
+                    topLeft = Offset(sw / 2f, sw / 2f),
+                    size = Size(size.width - sw, size.height - sw),
+                    style = Stroke(sw, cap = StrokeCap.Round)
+                )
+            }
         }
     }
 }
@@ -961,30 +1095,55 @@ private fun Controls(
     }
 
     if (showBgDialog) {
-        AlertDialog(
-            onDismissRequest = { showBgDialog = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    showBgDialog = false
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        bgLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-                    } else {
-                        requestIgnoreBattery(context)
-                    }
-                }) { Text("Открыть настройки") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showBgDialog = false }) { Text("Позже") }
-            },
-            title = { Text("Чтобы карта открывалась в фоне") },
-            text = {
+        // Фирменный стеклянный диалог вместо стокового AlertDialog — тот же
+        // язык, что у итогов прогулки.
+        GlassDialog(onDismiss = { showBgDialog = false }) {
+            DialogGlowIcon(Icons.Default.LocationOn, CYAN)
+            Spacer(Modifier.height(14.dp))
+            Text(
+                "Чтобы карта открывалась в фоне",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = CityFogColors.TextPrimary,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "На следующем экране выбери «Разрешать всегда» — тогда клетки будут " +
+                    "открываться даже с погашенным экраном. Потом разреши игнорировать " +
+                    "экономию батареи.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = CityFogColors.TextSecondary,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(24.dp))
+            DialogNeonButton("Открыть настройки") {
+                showBgDialog = false
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    bgLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                } else {
+                    requestIgnoreBattery(context)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            // Ghost-капсула: отказ есть, но не спорит с главным действием.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .border(1.dp, CityFogColors.Navy600, RoundedCornerShape(18.dp))
+                    .clickable { showBgDialog = false }
+                    .padding(vertical = 13.dp),
+                contentAlignment = Alignment.Center
+            ) {
                 Text(
-                    "На следующем экране выбери «Разрешать всегда» — тогда клетки будут " +
-                        "открываться даже с погашенным экраном. Потом разреши игнорировать " +
-                        "экономию батареи."
+                    "Позже",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = CityFogColors.TextSecondary
                 )
             }
-        )
+        }
     }
 }
 
@@ -1014,7 +1173,9 @@ private fun GlassIconButton(
                         .shadow(14.dp, CircleShape, ambientColor = CYAN, spotColor = CYAN)
                         .clip(CircleShape)
                         .background(Brush.linearGradient(listOf(TEAL_BRIGHT, CYAN)))
-                    else Modifier.glassPanel(23.dp)
+                    // Честный круг вместо RoundedCornerShape(23): кнопка круглая,
+                    // и стекло должно быть круглым.
+                    else Modifier.glassPanel(CircleShape)
                 )
                 .clickable(interactionSource = interaction, indication = ripple()) { onClick() },
             contentAlignment = Alignment.Center

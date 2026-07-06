@@ -40,7 +40,8 @@ private fun byCount(
 ): Achievement {
     val f = if (target > 0) (current.toFloat() / target).coerceIn(0f, 1f) else 0f
     val shown = current.coerceAtMost(target)
-    return Achievement(id, title, desc, icon, accent, f, "$shown / $target", current >= target)
+    // Телеметрия с тонкими пробелами: «1 613 / 10 000» вместо слипшихся разрядов.
+    return Achievement(id, title, desc, icon, accent, f, "${fmtInt(shown)} / ${fmtInt(target)}", current >= target)
 }
 
 private fun byPercent(
@@ -64,12 +65,13 @@ fun buildAchievements(
     val totalDistricts = progress.districts.size.coerceAtLeast(1)
     val novoPct = progress.districts.firstOrNull { it.name == "Ново-Савиновский" }?.percent ?: 0f
 
-    val cyan = CityFogColors.Cyan400
-    val teal = CityFogColors.Teal400
-    val amber = CityFogColors.Warning
+    // Цветовая лестница «три света города»: каждая группа наград — свой свет,
+    // чтобы группы различались с одного взгляда на скролле списка.
+    val cyan = CityFogColors.Cyan400     // клетки — холодный LED
+    val violet = CityFogColors.Violet400 // доля города — аврора
+    val amber = CityFogColors.Amber400   // районы — натриевые фонари
     val gold = Color(0xFFFFD24A)
     val orange = Color(0xFFFB923C)
-    val violet = Color(0xFFA78BFA)
 
     return listOf(
         // — Открытые клетки —
@@ -79,15 +81,15 @@ fun buildAchievements(
         byCount("cartographer", "Картограф", "10 000 открытых клеток", Icons.Filled.Public, cyan, cells, 10_000),
 
         // — Доля города —
-        byPercent("pct1", "Первый процент", "Исследуй 1% Казани", Icons.Filled.Percent, teal, pct, 1f),
-        byPercent("pct5", "Пять процентов", "Исследуй 5% Казани", Icons.Filled.Percent, teal, pct, 5f),
-        byPercent("pct10", "Десятая часть", "Исследуй 10% Казани", Icons.Filled.Percent, teal, pct, 10f),
-        byPercent("pct25", "Четверть города", "Исследуй 25% Казани", Icons.Filled.Percent, teal, pct, 25f),
+        byPercent("pct1", "Первый процент", "Исследуй 1% Казани", Icons.Filled.Percent, violet, pct, 1f),
+        byPercent("pct5", "Пять процентов", "Исследуй 5% Казани", Icons.Filled.Percent, violet, pct, 5f),
+        byPercent("pct10", "Десятая часть", "Исследуй 10% Казани", Icons.Filled.Percent, violet, pct, 10f),
+        byPercent("pct25", "Четверть города", "Исследуй 25% Казани", Icons.Filled.Percent, violet, pct, 25f),
 
         // — Районы —
-        byCount("all_started", "Город в движении", "Начни исследовать все районы", Icons.Filled.Hub, violet, started, totalDistricts),
-        byPercent("district_half", "Полрайона", "Любой район на 50%", Icons.Filled.PieChart, violet, maxDistrictPct, 50f),
-        byPercent("district_full", "Район закрыт", "Любой район на 100%", Icons.Filled.Verified, violet, maxDistrictPct, 100f),
+        byCount("all_started", "Город в движении", "Начни исследовать все районы", Icons.Filled.Hub, amber, started, totalDistricts),
+        byPercent("district_half", "Полрайона", "Любой район на 50%", Icons.Filled.PieChart, amber, maxDistrictPct, 50f),
+        byPercent("district_full", "Район закрыт", "Любой район на 100%", Icons.Filled.Verified, amber, maxDistrictPct, 100f),
         byPercent("novo_goal", "Цель: Ново-Савиновский", "Закрой Ново-Савиновский на 100%", Icons.Filled.Star, gold, novoPct, 100f),
 
         // — Регулярность —

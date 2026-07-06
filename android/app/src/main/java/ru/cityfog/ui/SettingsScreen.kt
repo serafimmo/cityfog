@@ -6,39 +6,49 @@ import android.content.Intent
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
-import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.automirrored.filled.Help
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,11 +57,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.cityfog.BuildConfig
@@ -59,6 +76,7 @@ import ru.cityfog.data.TrackRepository
 import ru.cityfog.data.VisitRepository
 import ru.cityfog.ui.theme.AuroraBackground
 import ru.cityfog.ui.theme.CityFogColors
+import ru.cityfog.ui.theme.MonoFamily
 import ru.cityfog.ui.theme.glassPanel
 import java.io.File
 import java.nio.ByteBuffer
@@ -73,6 +91,19 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     var showClearDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
+    var showFogDialog by remember { mutableStateOf(false) }
+    // Глass-тост результата экспорта: системный Toast выпадал из «ночного сканера».
+    var toastMsg by remember { mutableStateOf<String?>(null) }
+    // Последний непустой текст держим отдельно, чтобы exit-анимация не рисовала пустую строку.
+    var shownToast by remember { mutableStateOf("") }
+    LaunchedEffect(toastMsg) {
+        val msg = toastMsg
+        if (msg != null) {
+            shownToast = msg
+            delay(2600)
+            toastMsg = null
+        }
+    }
 
     Box(
         modifier = modifier
@@ -92,16 +123,17 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         ) {
         Text(
             "Настройки",
-            style = MaterialTheme.typography.headlineMedium
+            style = MaterialTheme.typography.displaySmall,
+            color = MaterialTheme.colorScheme.onBackground
         )
         Text(
             "Данные, экспорт и справка",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = CityFogColors.TextMuted,
             modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
         )
 
-        SettingsGroup(title = "Данные") {
+        SettingsGroup(title = "Данные", modifier = Modifier.cascadeIn(0)) {
             SettingsItem(
                 icon = Icons.Default.Share,
                 iconBg = CityFogColors.Cyan400.copy(alpha = 0.15f),
@@ -117,10 +149,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 title = "Скачать клетки в файл",
                 subtitle = "Сохранить CSV в папку «Загрузки»",
                 onClick = {
-                    scope.launch {
-                        val msg = downloadCells(context)
-                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                    }
+                    scope.launch { toastMsg = downloadCells(context) }
                 }
             )
             SettingsItem(
@@ -133,15 +162,16 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             )
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(24.dp))
 
-        SettingsGroup(title = "О приложении") {
+        SettingsGroup(title = "О приложении", modifier = Modifier.cascadeIn(1)) {
             SettingsItem(
                 icon = Icons.Default.Info,
                 iconBg = CityFogColors.Cyan400.copy(alpha = 0.15f),
                 iconTint = CityFogColors.Cyan400,
                 title = "О CityFog",
                 subtitle = "Версия ${BuildConfig.VERSION_NAME}",
+                showChevron = true,
                 onClick = { showAboutDialog = true }
             )
             SettingsItem(
@@ -150,52 +180,275 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 iconTint = CityFogColors.TextMuted,
                 title = "Как работает туман",
                 subtitle = "Кратко про клетки, GPS и районы",
-                onClick = { /* Можно открыть onboarding повторно */ }
+                showChevron = true,
+                onClick = { showFogDialog = true }
             )
         }
+
+        // Футер-якорь: нижняя половина экрана больше не «провисает» пустотой —
+        // тихий вордмарк закрывает композицию, как титры.
+        Spacer(Modifier.height(56.dp))
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                "CITYFOG",
+                style = MaterialTheme.typography.titleLarge,
+                color = CityFogColors.TextMuted.copy(alpha = 0.5f)
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "V${BuildConfig.VERSION_NAME} · КАЗАНЬ",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = MonoFamily, letterSpacing = 2.sp
+                ),
+                color = CityFogColors.TextMuted.copy(alpha = 0.35f)
+            )
+        }
+        }
+
+        // Глass-тост: выезжает снизу над доком и сам тает через пару секунд.
+        AnimatedVisibility(
+            visible = toastMsg != null,
+            enter = slideInVertically { it } + fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 100.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .glassPanel(18.dp)
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    tint = CityFogColors.Success,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    shownToast,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = CityFogColors.TextPrimary
+                )
+            }
         }
     }
 
     if (showClearDialog) {
-        AlertDialog(
-            onDismissRequest = { showClearDialog = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    VisitRepository.clearAll(context)
-                    TrackRepository.clearAll(context)
-                    showClearDialog = false
-                }) { Text("Удалить", color = CityFogColors.Recording) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearDialog = false }) { Text("Отмена") }
-            },
-            title = { Text("Сбросить прогресс?") },
-            text = { Text("Все открытые клетки, треки и статистика будут безвозвратно удалены. Это действие нельзя отменить.") }
-        )
+        GlassDialog(onDismiss = { showClearDialog = false }) {
+            Text(
+                "Сбросить прогресс?",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = CityFogColors.TextPrimary
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Все открытые клетки, треки и статистика будут безвозвратно удалены. " +
+                    "Это действие нельзя отменить.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = CityFogColors.TextSecondary
+            )
+            Spacer(Modifier.height(24.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                GhostCapsule(
+                    label = "Отмена",
+                    modifier = Modifier.weight(1f),
+                    onClick = { showClearDialog = false }
+                )
+                DangerCapsule(
+                    label = "Удалить",
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        VisitRepository.clearAll(context)
+                        TrackRepository.clearAll(context)
+                        showClearDialog = false
+                    }
+                )
+            }
+        }
     }
 
     if (showAboutDialog) {
-        AlertDialog(
-            onDismissRequest = { showAboutDialog = false },
-            confirmButton = {
-                TextButton(onClick = { showAboutDialog = false }) { Text("OK") }
-            },
-            title = { Text("CityFog") },
-            text = {
-                Text(
-                    "Личный туман войны по клеткам для Казани.\n\n" +
+        GlassDialog(onDismiss = { showAboutDialog = false }) {
+            Text(
+                "О CityFog",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = CityFogColors.TextPrimary
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Личный туман войны по клеткам для Казани.\n\n" +
                     "GPS открывает клетки 12×12 м, пока ты исследуешь город. " +
                     "Всё хранится локально на телефоне, без сервера и аккаунтов.\n\n" +
-                    "Версия ${BuildConfig.VERSION_NAME}"
-                )
-            }
+                    "Версия ${BuildConfig.VERSION_NAME}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = CityFogColors.TextSecondary
+            )
+            Spacer(Modifier.height(24.dp))
+            CyanCapsule(
+                label = "OK",
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { showAboutDialog = false }
+            )
+        }
+    }
+
+    if (showFogDialog) {
+        GlassDialog(onDismiss = { showFogDialog = false }) {
+            Text(
+                "Как работает туман",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = CityFogColors.TextPrimary
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Город разбит на клетки 12×12 м, и в начале все они скрыты туманом.\n\n" +
+                    "GPS отмечает, где ты проходишь, и открывает клетки — тёмная карта " +
+                    "светлеет там, где ты уже был.\n\n" +
+                    "Проценты в статистике считаются по районам: чем больше клеток " +
+                    "района открыто, тем выше его прогресс.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = CityFogColors.TextSecondary
+            )
+            Spacer(Modifier.height(24.dp))
+            CyanCapsule(
+                label = "Понятно",
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { showFogDialog = false }
+            )
+        }
+    }
+}
+
+/**
+ * Фирменный диалог «ночного сканера»: стеклянная карточка с пружинным входом —
+ * тот же язык, что у итогов прогулки на карте. Стоковый AlertDialog выглядел
+ * чужим среди стекла и неона.
+ */
+@Composable
+private fun GlassDialog(
+    onDismiss: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        // Пружинное появление: карточка «выпрыгивает» с лёгким перелётом.
+        var shown by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { shown = true }
+        val scale by animateFloatAsState(
+            targetValue = if (shown) 1f else 0.86f,
+            animationSpec = spring(dampingRatio = 0.55f, stiffness = 420f),
+            label = "dialog-scale"
+        )
+        val alpha by animateFloatAsState(
+            targetValue = if (shown) 1f else 0f,
+            animationSpec = tween(200),
+            label = "dialog-alpha"
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    this.alpha = alpha
+                }
+                .glassPanel(28.dp)
+        ) {
+            Column(modifier = Modifier.padding(24.dp), content = content)
+        }
+    }
+}
+
+/** Деструктив: тёплая orange→red капсула со свечением — «горячее» действие видно сразу. */
+@Composable
+private fun DangerCapsule(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(
+        modifier = modifier
+            .shadow(
+                14.dp, CircleShape,
+                ambientColor = CityFogColors.Recording, spotColor = CityFogColors.Recording
+            )
+            .clip(CircleShape)
+            .background(
+                Brush.horizontalGradient(listOf(Color(0xFFF97316), CityFogColors.Recording))
+            )
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = CityFogColors.Navy900
+        )
+    }
+}
+
+/** Главное действие: неоновая teal→cyan капсула — сестра StartStopButton с карты. */
+@Composable
+private fun CyanCapsule(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(
+        modifier = modifier
+            .shadow(
+                14.dp, CircleShape,
+                ambientColor = CityFogColors.Cyan400, spotColor = CityFogColors.Cyan400
+            )
+            .clip(CircleShape)
+            .background(
+                Brush.horizontalGradient(listOf(CityFogColors.Teal400, CityFogColors.Cyan400))
+            )
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = CityFogColors.Navy900
+        )
+    }
+}
+
+/** Второстепенное действие: ghost-капсула — только контур, никакой заливки. */
+@Composable
+private fun GhostCapsule(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .border(1.dp, CityFogColors.Navy600, CircleShape)
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = CityFogColors.TextSecondary
         )
     }
 }
 
 @Composable
-private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
-    Column {
+private fun SettingsGroup(
+    title: String,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Column(modifier) {
         // Eyebrow-заголовок группы: КАПС с широким разрядом (labelLarge теперь моно —
         // буква «О» там путается с нулём).
         Text(
@@ -219,16 +472,35 @@ private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun SettingsItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    iconBg: androidx.compose.ui.graphics.Color,
-    iconTint: androidx.compose.ui.graphics.Color,
+    iconBg: Color,
+    iconTint: Color,
     title: String,
     subtitle: String,
+    showChevron: Boolean = false,
     onClick: () -> Unit
 ) {
+    // Микро-отклик: строка едва заметно поджимается, шеврон подаётся вперёд —
+    // нажатие чувствуется ещё до того, как что-то открылось.
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.98f else 1f,
+        animationSpec = spring(dampingRatio = 0.5f, stiffness = 650f),
+        label = "item-press"
+    )
+    val dx by animateDpAsState(
+        targetValue = if (pressed) 4.dp else 0.dp,
+        animationSpec = spring(dampingRatio = 0.5f, stiffness = 650f),
+        label = "item-chevron"
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -240,7 +512,12 @@ private fun SettingsItem(
                 .background(iconBg),
             contentAlignment = Alignment.Center
         ) {
-            Icon(imageVector = icon, contentDescription = title, tint = iconTint)
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = iconTint,
+                modifier = Modifier.size(22.dp)
+            )
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -254,11 +531,18 @@ private fun SettingsItem(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        Text(
-            "›",
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        // Шеврон только у пунктов-переходов; действия (share/download/удалить)
+        // говорят за себя сами и стрелку не обещают.
+        if (showChevron) {
+            Icon(
+                imageVector = Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = CityFogColors.TextMuted.copy(alpha = 0.7f),
+                modifier = Modifier
+                    .size(20.dp)
+                    .offset(x = dx)
+            )
+        }
     }
 }
 

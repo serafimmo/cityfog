@@ -91,11 +91,11 @@ val Typography = Typography(
         fontFamily = DisplayFamily, fontWeight = FontWeight.SemiBold,
         fontSize = 21.sp, lineHeight = 28.sp, letterSpacing = 0.sp
     ),
-    // Значения быстрых метрик — телеметрия: моноширинные цифры.
+    // Системный слот заголовков диалогов (AlertDialog и т.п.) — Unbounded,
+    // как у остальных заголовков; телеметрия задаёт моно inline-стилем сама.
     headlineSmall = TextStyle(
-        fontFamily = MonoFamily, fontWeight = FontWeight.Bold,
-        fontSize = 20.sp, lineHeight = 26.sp, letterSpacing = (-0.5).sp,
-        fontFeatureSettings = TNUM
+        fontFamily = DisplayFamily, fontWeight = FontWeight.SemiBold,
+        fontSize = 19.sp, lineHeight = 24.sp, letterSpacing = 0.sp
     ),
     titleLarge = TextStyle(
         fontFamily = DisplayFamily, fontWeight = FontWeight.Medium,
@@ -121,11 +121,11 @@ val Typography = Typography(
         fontFamily = TextFamily, fontWeight = FontWeight.Normal,
         fontSize = 13.sp, lineHeight = 18.sp, letterSpacing = 0.1.sp
     ),
-    // Процент в кольце на карте и похожие плотные цифры — моно.
+    // Системный слот текстов кнопок (TextButton, диалоги) — Manrope, не моно:
+    // кириллица «Отмена»/«Далее» в моноширинном читалась как терминал.
     labelLarge = TextStyle(
-        fontFamily = MonoFamily, fontWeight = FontWeight.SemiBold,
-        fontSize = 14.sp, lineHeight = 18.sp, letterSpacing = 0.sp,
-        fontFeatureSettings = TNUM
+        fontFamily = TextFamily, fontWeight = FontWeight.SemiBold,
+        fontSize = 14.sp, lineHeight = 20.sp, letterSpacing = 0.1.sp
     ),
     labelMedium = TextStyle(
         fontFamily = TextFamily, fontWeight = FontWeight.Medium,
