@@ -1,65 +1,73 @@
-# city_check — «туман войны по клеткам» для Казани
+# CityFog
 
-Личное Android-приложение: пока физически перемещаешься по Казани (пешком/велик/самокат),
-GPS «открывает» квадратные клетки 12 м. Цель — закрыть как можно больше города, видеть % по районам.
-Всё локально, без сервера/аккаунтов.
+A personal Android app that turns walking around Kazan into a game. The city map is covered
+in "fog of war". As you walk, cycle or ride a scooter, GPS opens the 12 × 12 m cells you pass
+through, and the app counts what share of the city, and of each district, you have explored.
+Everything stays on the phone: no server, no account.
 
-> Это рабочая копия проекта (`city_check_kimi`), в которой продолжается разработка с упором на визуальную полировку и UX.
+![Map with opened cells near the Kazan Kremlin, statistics, progress by district](docs/screenshots.jpg)
 
-## Структура
-```
-tools/        Python-препроцессинг OSM (на PC): растровая маска доступности + районы
-android/      Android-приложение (Kotlin, Compose, MapLibre)
-```
+*Emulator screenshots of the June 2026 build, with test data. The UI was redesigned in July.*
 
-## Ключевые решения
-- Сетка 12 м, локальная equirectangular-проекция (см. `tools/grid_config.py` — единый источник правды).
-- Доступность клеток = площадь города минус исключения (вода/заводы/военное/частное), считаем оффлайн на Python.
-- Карта: MapLibre (бесплатно, без токена). GPS: Foreground Service.
-- Маска доступности — сырой `uint8` в `assets/kazan_mask.bin` (Android сам жмёт deflate'ом в APK).
+> **Status: working prototype.** Tracking, the fog, statistics, achievements and CSV export
+> work. Offline maps and manual editing of unreachable cells are not done yet. Not
+> published in an app store.
+>
+> **How this was made.** The idea, the game rules and the key decisions are mine: they are
+> in my original brief, [`docs/brief.ru.md`](docs/brief.ru.md) (in Russian). Most of the
+> code was written by AI coding assistants.
 
-## Что сделано в этой копии
+## How it works
 
-### Визуал и UX
-- ✅ Полностью переработан визуал:
-  - Тёмная тема CityFog (полночная синь `#0A0E27` + циан `#22D3EE` / бирюза `#14B8A6`).
-  - Нижняя навигация с тремя вкладками: Карта, Статистика, Настройки.
-  - Пульсирующий индикатор записи маршрута.
-  - Цвета районов в панели прогресса.
-  - Иконки вместо текстовых символов на кнопках управления.
-  - Лёгкая виброотдача и Snackbar при открытии новых клеток.
-  - Усиленный пульс точки позиции на карте.
-- ✅ Адаптивная иконка приложения + splash-лого (placeholder, см. `LOGO_BRIEF.md`).
-- ✅ SplashScreen API с анимированным выездом логотипа.
-- ✅ Onboarding из трёх экранов при первом запуске.
-- ✅ Карта переключена на стиль `liberty` (OpenFreeMap).
+**What counts as 100 %.** A city is not 100 % walkable: rivers, factories, military and
+private land are closed. A Python pipeline in [`tools/`](tools/) reads OpenStreetMap data
+once, takes the city boundary and its districts, subtracts water, industrial, military and
+private areas, and rasterises the result with OpenCV into a mask: one pixel = one cell, the
+value = the district. That leaves **3,633,927 reachable cells, 523 km²**, the denominator of
+the percentage.
 
-### Архитектура и данные
-- ✅ Python и Android теперь используют одни и те же формулы размера сетки; `GridMapper.kt` выводит `WIDTH`/`HEIGHT` из `LAT_MAX`/`LON_MAX`.
-- ✅ Манифест сетки расширен полями `latMax`/`lonMax`.
-- ✅ `VisitStore` теперь хранит время первого посещения каждой клетки.
-- ✅ `TrackStore` записывает GPS-трек для расчёта расстояния и времени в пути.
+**Grid.** A local equirectangular projection around Kazan with 12 m cells: city GPS is not
+precise enough for smaller ones. The grid is defined once in
+[`tools/grid_config.py`](tools/grid_config.py), and the Kotlin
+[`GridMapper`](android/app/src/main/java/ru/cityfog/grid/GridMapper.kt) must match it
+exactly, or the mask pixels stop lining up with the cells on the phone.
 
-### Экраны
-- ✅ **Карта**: туман войны, панель районов, GPS-трекинг, разрешения.
-- ✅ **Статистика**: общий %, сегодня/неделя/месяц, стрик, лучший день, лидирующий район, прогресс-бары по районам, расстояние и время в пути.
-- ✅ **Настройки**: экспорт посещённых клеток в CSV, очистка прогресса, «О приложении».
+**On the phone.**
+- The mask ships in the APK as a raw 3233 × 3525 `uint8` array (11.4 MB, deflated in the
+  APK); checking a cell is an O(1) array lookup, no geometry.
+- A foreground location service records the walk and restarts after a reboot.
+- Opened cells go to an append-only binary file, 16 bytes each: cell id and first-visit time.
+- The fog is a dark polygon with holes cut where you have been. Neighbouring cells are merged
+  into rectangles to keep the polygon small, and a glow is drawn only along the outer edge
+  of the explored area.
+- Screens: map with a district panel, statistics (today, week, month, streak, best day,
+  a 14-day activity chart, progress by district), achievements, settings with CSV export.
 
-## Сборка
+## Building
+
 ```powershell
-$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 cd android
-.\gradlew.bat :app:assembleDebug
+.\gradlew.bat :app:assembleDebug     # APK: android/app/build/outputs/apk/debug/app-debug.apk
 ```
-APK: `android/app/build/outputs/apk/debug/app-debug.apk`.
 
-## Статус
-- [x] Фундамент: конфиг сетки, структура, README
-- [x] OSM-пайплайн: извлечение полигонов + растеризация маски
-- [x] Android Phase 0: проект + карта Казани
-- [x] Android Phase 1 (MVP): GPS-трекинг + клеточный туман + общий %
-- [x] Android Phase 2: районы + % по районам
-- [x] Android Phase 3 (частично): статистика, треки, экспорт
-- [ ] Android Phase 3: оффлайн-карта (mbtiles)
-- [ ] Android Phase 4: ручные правки непроходимых клеток
-- [ ] Android Phase 5+: теплокарта, достижения, GPX-экспорт
+The mask is already in `android/app/src/main/assets/`. To rebuild it from OpenStreetMap,
+see [`tools/README.md`](tools/README.md) (in Russian).
+
+## Stack
+
+Kotlin · Jetpack Compose · MapLibre Native · Android foreground services · Python (pyrosm,
+Shapely, OpenCV, NumPy) for the OpenStreetMap preprocessing
+
+## Credits
+
+- Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL);
+  the availability mask is derived from it.
+- Map tiles: [OpenFreeMap](https://openfreemap.org/), style "liberty".
+- Map rendering: [MapLibre Native](https://github.com/maplibre/maplibre-native) (BSD 2-Clause).
+- Fonts: Manrope, Unbounded, JetBrains Mono (SIL Open Font License 1.1).
+
+## License
+
+My code is under the [MIT License](LICENSE). The bundled fonts keep their own licence, and the
+availability mask in `android/app/src/main/assets/` is derived from OpenStreetMap data and
+is available under the ODbL.
